@@ -10,8 +10,13 @@
 //! wins over the file, and the file over kai's default. A path in the file
 //! is taken from the file's directory.
 //!
-//! Exit status: 0; 2 for a command line or a settings file kai cannot read,
-//! or when logging cannot be set up.
+//! A `.env` file, the first from the current directory upward, is read into
+//! the environment before anything else, so that the `KAI_*` variables can
+//! stand in it. A variable that is already set wins over the file. The file
+//! is for secrets and stays out of version control.
+//!
+//! Exit status: 0; 2 for a command line, a `.env` or a settings file kai
+//! cannot read, or when logging cannot be set up.
 
 #![allow(
     clippy::print_stdout,
@@ -132,7 +137,30 @@ impl Cli {
     }
 }
 
+/// Reads the first `.env` from the current directory upward into the
+/// environment. No such file is fine; one that cannot be read or parsed is
+/// not, because a secret that silently failed to load is hard to find.
+fn load_dotenv() -> anyhow::Result<()> {
+    match dotenvy::dotenv() {
+        Ok(_) => Ok(()),
+        Err(err) if err.not_found() => Ok(()),
+        // dotenvy's message quotes the line, and the line may hold a secret.
+        Err(dotenvy::Error::LineParse(..)) => {
+            anyhow::bail!(
+                "cannot read .env: a line is malformed (not shown, as it may hold a secret)"
+            )
+        }
+        Err(err) => Err(err).context("cannot read .env"),
+    }
+}
+
 fn main() -> ExitCode {
+    // Before `Cli::parse`: clap reads the KAI_* variables from the
+    // environment while it parses.
+    if let Err(err) = load_dotenv() {
+        eprintln!("kai: {err:#}");
+        return ExitCode::from(2);
+    }
     let cli = Cli::parse();
     let config = match cli.config() {
         Ok(config) => config,

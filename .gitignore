@@ -3,3 +3,7 @@
 /specs/
 
 /target/
+
+# Secrets of a maintainer's checkout, such as the GitHub token; never
+# published.
+/.env

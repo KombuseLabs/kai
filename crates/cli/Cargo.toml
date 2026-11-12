@@ -19,6 +19,12 @@ path = "src/main.rs"
 anyhow = "1.0.104"
 # The command line: options, --help, and options from environment variables.
 clap = { version = "4.6.7", features = ["derive", "env"] }
+# Reads a `.env` file from the current directory upward into the process
+# environment, so that KAI_* variables and the GitHub token need not be
+# exported by hand; a variable already set wins over the file. Saves the
+# search and the quoting rules of a `.env`, about 100 lines. Maintained
+# fork of the abandoned `dotenv`.
+dotenvy = "0.15.7"
 engine = { path = "../engine" }
 helpers = { path = "../helpers" }
 # The shape of kai.toml, read through helpers::config.
