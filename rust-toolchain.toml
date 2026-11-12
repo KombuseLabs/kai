@@ -1,0 +1,7 @@
+# The Rust that builds and tests kai, here and in CI. rustup installs what
+# is missing on the first cargo call in this directory. To change the
+# version, change it here and in `rust-version` (Cargo.toml) together.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

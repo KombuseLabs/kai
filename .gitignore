@@ -1,0 +1,5 @@
+# Private working notes of a maintainer's checkout: specs, the port ledger,
+# the list of names tools/check-public.sh refuses. Never published.
+/specs/
+
+/target/

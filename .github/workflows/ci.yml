@@ -1,0 +1,148 @@
+# The checks of the repository, in three jobs that run side by side:
+#   check  nothing private, formatting, clippy, the tests, the API docs
+#   deny   `cargo deny check` against deny.toml: advisories, licences and
+#          sources of the Rust dependencies
+#   text   spelling (typos) and the links between the Markdown files (lychee)
+# Nothing here calls a model or costs money.
+#
+# Every action is pinned to a commit; the comment behind it names the release
+# that commit is. To update one, replace both. Every tool is built from
+# crates.io at the version named in `env`, with the lock file it was
+# published with, and cached under that version.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NEXTEST_VERSION: 0.9.151
+  CARGO_DENY_VERSION: 0.20.2
+  TYPOS_VERSION: 1.52.2
+  LYCHEE_VERSION: 0.24.2
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # The whole history: check-public.sh reads every commit's author.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Nothing private
+        run: tools/check-public.sh
+
+      # Without a name, rustup installs what rust-toolchain.toml names.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          cargo --version
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      # Includes the workspace lints of Cargo.toml (missing docs).
+      - name: cargo clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: cargo-nextest cache
+        id: nextest
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/kai-tools/nextest
+          key: nextest-${{ runner.os }}-${{ env.CARGO_NEXTEST_VERSION }}
+
+      - name: Install cargo-nextest
+        if: steps.nextest.outputs.cache-hit != 'true'
+        run: cargo install --locked --version "$CARGO_NEXTEST_VERSION" --root "$HOME/.cache/kai-tools/nextest" cargo-nextest
+
+      - name: Tests
+        run: PATH="$HOME/.cache/kai-tools/nextest/bin:$PATH" cargo nextest run --locked
+
+      # nextest does not run the examples in doc comments.
+      - name: Doc tests
+        run: cargo test --doc --locked
+
+      # A broken link between doc comments is an error.
+      - name: API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --locked
+
+  deny:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          cargo --version
+
+      - name: cargo-deny cache
+        id: deny
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/kai-tools/deny
+          key: deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}
+
+      - name: Install cargo-deny
+        if: steps.deny.outputs.cache-hit != 'true'
+        run: cargo install --locked --version "$CARGO_DENY_VERSION" --root "$HOME/.cache/kai-tools/deny" cargo-deny
+
+      # The advisory database is fetched on every run, so a new advisory
+      # against a locked dependency fails this job without a change here.
+      - name: cargo deny check
+        run: |
+          "$HOME/.cache/kai-tools/deny/bin/cargo-deny" --version
+          "$HOME/.cache/kai-tools/deny/bin/cargo-deny" --locked --workspace check
+
+  text:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          cargo --version
+
+      - name: typos and lychee cache
+        id: text
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/kai-tools/text
+          key: text-${{ runner.os }}-typos-${{ env.TYPOS_VERSION }}-lychee-${{ env.LYCHEE_VERSION }}
+
+      - name: Install typos and lychee
+        if: steps.text.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --version "$TYPOS_VERSION" --root "$HOME/.cache/kai-tools/text" typos-cli
+          cargo install --locked --version "$LYCHEE_VERSION" --root "$HOME/.cache/kai-tools/text" lychee
+
+      - name: Spelling
+        run: git ls-files -z | xargs -0 "$HOME/.cache/kai-tools/text/bin/typos"
+
+      # Links between files of the repository only: a link to another site
+      # can fail for reasons that are not the repository's.
+      - name: Links
+        run: git ls-files -z '*.md' | xargs -0 "$HOME/.cache/kai-tools/text/bin/lychee" --offline --no-progress

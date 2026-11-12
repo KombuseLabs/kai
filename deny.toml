@@ -1,0 +1,50 @@
+# cargo-deny: what kai's Rust dependencies may be. CI runs it
+# (.github/workflows/ci.yml, job `deny`) with the version pinned there.
+# Locally: `cargo install --locked cargo-deny`, then
+#   cargo deny --locked --workspace check
+
+[graph]
+# Every crate any workspace member can pull in, on every platform (no
+# `targets` filter) and with every feature.
+all-features = true
+
+[advisories]
+# A known vulnerability in a locked dependency always fails; cargo-deny has
+# no switch for that. The advisory database (github.com/rustsec/advisory-db)
+# is fetched on every run, so this check can start failing without a change
+# to the repository. Also failing: a soundness advisory anywhere in the tree,
+# a locked version that was yanked from crates.io, and an unmaintained crate
+# that a kai crate depends on directly (one deeper in the tree is its
+# dependent's to replace, not kai's).
+unsound = "all"
+unmaintained = "workspace"
+yanked = "deny"
+# An entry here names the advisory and why it does not apply to kai, and is
+# removed with the update that fixes it:
+#   { id = "RUSTSEC-0000-0000", reason = "..." }
+ignore = []
+
+[licenses]
+# Exactly the licences the dependency tree needs today, all permissive. Where
+# a crate offers a choice (`MIT OR Apache-2.0`), one allowed licence is
+# enough. kai's own crates are Apache-2.0. A dependency under any other
+# licence fails until someone decides about it.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    # unicode-ident, for the Unicode data it carries.
+    "Unicode-3.0",
+]
+
+[bans]
+# Nothing is banned by name, and two versions of one crate in the tree are a
+# size question that this check does not decide.
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+# crates.io only: no other registry and no git dependency.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

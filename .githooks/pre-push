@@ -1,0 +1,41 @@
+#!/bin/sh
+# Refuses a push that would publish a commit whose author or committer is
+# not a GitHub noreply address, or one without a good signature by a key of
+# .githooks/allowed_signers. It reads every commit the push adds, so it
+# also catches one made before the hooks were set up or with --no-verify.
+#
+# Git runs the hooks of this directory once a clone says so:
+#   git config core.hooksPath .githooks
+set -eu
+
+remote=$1
+signers=$(git rev-parse --show-toplevel)/.githooks/allowed_signers
+zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
+found=0
+
+while read -r _ local_sha _ remote_sha; do
+  [ "$local_sha" != "$zero" ] || continue # a ref is deleted: nothing is published
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    set -- "$remote_sha..$local_sha"
+  else
+    # A new ref, or a remote commit this clone does not have: everything
+    # the remote is not known to hold.
+    set -- "$local_sha" --not "--remotes=$remote"
+  fi
+  people=$(git log --format='%ae%n%ce' "$@" | sort -u |
+    grep -vE '@users\.noreply\.github\.com$|^noreply@github\.com$' || true)
+  if [ -n "$people" ]; then
+    printf 'pre-push: commits by an address that is not a GitHub noreply address:\n%s\n' "$people" >&2
+    found=1
+  fi
+  # %G? is G only for a good signature by a listed key.
+  unsigned=$(git -c "gpg.ssh.allowedSignersFile=$signers" log --format='%G? %h %s' "$@" |
+    grep -v '^G ' || true)
+  if [ -n "$unsigned" ]; then
+    printf 'pre-push: commits without a good signature by a listed key (N none, U or B not good, E not checkable):\n%s\n' "$unsigned" >&2
+    found=1
+  fi
+done
+
+[ "$found" -eq 0 ] || echo 'pre-push: nothing was pushed; rewrite those commits first' >&2
+exit "$found"

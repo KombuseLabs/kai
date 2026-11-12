@@ -1,0 +1,23 @@
+[package]
+name = "helpers"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Infrastructure the other crates share; first of all logging"
+
+[dependencies]
+tracing.workspace = true
+# The sinks: formatting for people and as JSON lines, a level per sink.
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std", "fmt", "ansi", "json"] }
+# A queue and a writer thread per sink, so that logging never waits for a
+# disk or a network.
+tracing-appender = "0.2.5"
+
+[dev-dependencies]
+# The tests read the JSON lines a sink wrote.
+serde_json = "1.0.154"
+
+[lints]
+workspace = true

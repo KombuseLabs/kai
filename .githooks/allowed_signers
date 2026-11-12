@@ -1,0 +1,6 @@
+# Who may sign commits of this repository: one line per person, the address
+# they commit with and their public signing key. git checks signatures
+# against this file (`gpg.ssh.allowedSignersFile`), and so does the
+# pre-push hook. A new line is added in a commit signed by someone who is
+# already listed.
+4280481+PhilippLgh@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOto8vXke2OveGhY1Hc/MKhWUJ5IbQgsYF7/Gu4sEouX

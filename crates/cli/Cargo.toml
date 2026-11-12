@@ -1,0 +1,23 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "kai's command line"
+
+# The crate is `cli`; the program it builds is `kai`.
+[[bin]]
+name = "kai"
+path = "src/main.rs"
+
+[dependencies]
+# The command line: options, --help, and options from environment variables.
+clap = { version = "4.6.7", features = ["derive", "env"] }
+engine = { path = "../engine" }
+helpers = { path = "../helpers" }
+tracing.workspace = true
+
+[lints]
+workspace = true

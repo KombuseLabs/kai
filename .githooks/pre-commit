@@ -1,0 +1,30 @@
+#!/bin/sh
+# Refuses a commit in a clone that does not sign its commits, a commit
+# whose author or committer is not a GitHub noreply address, and a commit
+# while tracked files hold what must not be public (tools/check-public.sh).
+#
+# Git runs the hooks of this directory once a clone says so:
+#   git config core.hooksPath .githooks
+set -eu
+
+if [ "$(git config --type=bool --get commit.gpgsign || true)" != true ]; then
+  echo 'pre-commit: this clone does not sign its commits' >&2
+  echo 'pre-commit: AGENTS.md, "Once per clone", has the settings' >&2
+  exit 1
+fi
+
+for who in AUTHOR COMMITTER; do
+  ident=$(git var "GIT_${who}_IDENT")
+  address=$(printf '%s\n' "$ident" | sed 's/.*<\(.*\)>.*/\1/')
+  case "$address" in
+    *@users.noreply.github.com) ;;
+    *)
+      who=$(printf '%s' "$who" | tr 'A-Z' 'a-z')
+      echo "pre-commit: the $who's address is $address, not a GitHub noreply address" >&2
+      echo "pre-commit: set yours for this clone: git config user.email <id>+<login>@users.noreply.github.com" >&2
+      exit 1
+      ;;
+  esac
+done
+
+exec "$(git rev-parse --show-toplevel)/tools/check-public.sh"
