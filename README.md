@@ -12,4 +12,6 @@ kai needs Rust; `rust-toolchain.toml` names the version.
 
 ## Licence
 
-Apache-2.0, see [LICENSE](LICENSE). Security reports: [SECURITY.md](SECURITY.md).
+Copyright 2026 Kombuse Labs. Apache-2.0, see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security
+reports: [SECURITY.md](SECURITY.md).

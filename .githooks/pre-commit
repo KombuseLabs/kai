@@ -9,7 +9,7 @@ set -eu
 
 if [ "$(git config --type=bool --get commit.gpgsign || true)" != true ]; then
   echo 'pre-commit: this clone does not sign its commits' >&2
-  echo 'pre-commit: AGENTS.md, "Once per clone", has the settings' >&2
+  echo 'pre-commit: CONTRIBUTING.md, "If you push to this repository", has the settings' >&2
   exit 1
 fi
 

@@ -9,6 +9,7 @@ edition = "2024"
 # The compiler rust-toolchain.toml names; nothing older is built or tested.
 rust-version = "1.98"
 license = "Apache-2.0"
+repository = "https://github.com/KombuseLabs/kai"
 
 # Every crate takes these with `[lints] workspace = true`.
 [workspace.lints.rust]

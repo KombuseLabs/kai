@@ -15,6 +15,7 @@ and further crates kai consists of is not decided.
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does; `logging` is its first piece |
 | `contracts/` | the file formats kai reads and writes, one page each; none is defined yet |
 | `deny.toml` | which licences and sources dependencies may have |
+| `CONTRIBUTING.md` | what a change needs, the checks, and the settings of a clone that pushes here |
 | `tools/check-public.sh` | refuses what must not be in a public repository |
 | `.githooks/` | `pre-commit` and `pre-push`: no commit and no push that is unsigned or by an address that is not a GitHub noreply address; `allowed_signers` lists who may sign |
 | `specs/` | gitignored; exists only in a maintainer's checkout |
@@ -36,8 +37,8 @@ and further crates kai consists of is not decided.
   private project names, e-mail addresses or real transcripts in tracked
   files; fixtures are invented. `tools/check-public.sh` must pass.
   Commits are signed and by a GitHub noreply address; the hooks refuse
-  anything else ("Once per clone" below). Never pass `--no-verify` or
-  `--no-gpg-sign`.
+  anything else, once a clone is set up as `CONTRIBUTING.md` says. Never
+  pass `--no-verify` or `--no-gpg-sign`.
 - **Unknown is not zero.** A value nobody recorded stays absent in what
   kai writes and prints; it is never shown as 0.
 - **Nothing here calls a model or spends money.** Never approve spending.
@@ -46,20 +47,6 @@ and further crates kai consists of is not decided.
 - **Linux first.** Tests run without network and without a model.
 - Docs and comments are in English. Commit messages say what changed and
   why. Do not commit and do not push unless the owner asks for it.
-
-## Once per clone
-
-```sh
-git config core.hooksPath .githooks
-git config user.email <id>+<login>@users.noreply.github.com
-git config gpg.format ssh
-git config user.signingkey ~/.ssh/<your key>.pub
-git config commit.gpgsign true
-git config gpg.ssh.allowedSignersFile .githooks/allowed_signers
-```
-
-A new signer's address and public key go into `.githooks/allowed_signers`,
-in a commit signed by someone already listed.
 
 ## Commands
 
