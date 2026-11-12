@@ -1,0 +1,16 @@
+# kai's settings for this directory and every directory below it. kai reads
+# the first kai.toml it finds from the current directory upward, or the
+# file `--config` (or KAI_CONFIG) names. An option, or the environment
+# variable beside it, wins over this file, and this file over kai's
+# default. A key kai does not know is an error. `kai --help` lists the
+# options.
+
+[log]
+# Lowest level of the log lines on standard error: off, error, warn, info,
+# debug or trace. As --log-level; kai's default is warn.
+level = "warn"
+
+# Also write every log line from debug up to this file, one JSON object per
+# line. As --log-file; a relative path is taken from this file's directory.
+# Unset by default.
+# file = "target/kai.jsonl"

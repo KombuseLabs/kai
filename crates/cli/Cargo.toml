@@ -14,10 +14,15 @@ name = "kai"
 path = "src/main.rs"
 
 [dependencies]
+# One error type for main, with the context of what kai was doing (the
+# owner's choice for `cli`, taken at its first use).
+anyhow = "1.0.104"
 # The command line: options, --help, and options from environment variables.
 clap = { version = "4.6.7", features = ["derive", "env"] }
 engine = { path = "../engine" }
 helpers = { path = "../helpers" }
+# The shape of kai.toml, read through helpers::config.
+serde.workspace = true
 tracing.workspace = true
 
 [lints]

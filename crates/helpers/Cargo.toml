@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Infrastructure the other crates share; first of all logging"
+description = "Infrastructure the other crates share: logging, settings files"
 
 [dependencies]
 tracing.workspace = true
@@ -15,6 +15,12 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 # A queue and a writer thread per sink, so that logging never waits for a
 # disk or a network.
 tracing-appender = "0.2.5"
+serde.workspace = true
+# Settings files are TOML. Reading only: no writing, no editing in place.
+toml = { version = "1.2.1", default-features = false, features = ["std", "parse", "serde"] }
+# The error types of the modules. Already in the tree through
+# tracing-appender, so it adds no crate.
+thiserror = "2.0.21"
 
 [dev-dependencies]
 # The tests read the JSON lines a sink wrote.

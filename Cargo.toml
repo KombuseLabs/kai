@@ -31,3 +31,6 @@ dbg_macro = "warn"
 # Logging: every crate logs through tracing's macros; helpers::logging
 # decides where the lines go.
 tracing = "0.1.44"
+# Settings files: helpers::config reads into any type that derives
+# `Deserialize`; the program's own crate declares that type.
+serde = { version = "1.0.229", features = ["derive"] }
