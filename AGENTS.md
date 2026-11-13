@@ -20,7 +20,8 @@ run mounts and activates the pinned add-on only for the second session.
 Results go to `<name>/results/<timestamp>/`, in the directories named by
 the task's `arms` (`plain` and `ponytail` in the included task).
 It has no grader or statistical verdict. These paths are tested against a local fake
-model; no ticket's check or real-model workflow has been verified yet.
+model; a simple HTML pair has also completed with a real model through the
+external proxy. No ticket's check has been verified yet.
 
 ## Where things are
 

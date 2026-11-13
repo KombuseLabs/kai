@@ -824,6 +824,9 @@ fn environment(mut env: BTreeMap<String, String>, route: &Route) -> BTreeMap<Str
         ("CLAUDE_CONFIG_DIR", "/job/home/.claude"),
         ("TMPDIR", "/tmp"),
         ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+        // Keep the request ceiling explicit instead of inheriting a model's
+        // changing default. The external proxy still enforces spending.
+        ("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "32000"),
         ("DISABLE_AUTOUPDATER", "1"),
         ("ANTHROPIC_BASE_URL", "http://127.0.0.1:8787"),
         ("ANTHROPIC_API_KEY", &route.credential),

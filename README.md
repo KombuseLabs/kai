@@ -141,7 +141,8 @@ supply the external proxy's `ANTHROPIC_BASE_URL` and placeholder
 `ANTHROPIC_API_KEY`. The proxy owns spending approval and limits. `--mock`
 uses a local fake API instead. Parallel runs, separate generated files,
 prompt delivery and partial failure are tested with that fake API in
-real microVMs; this is not evidence of model quality.
+real microVMs. A live HTML-calculator pair has also completed through the
+external proxy with separate exported HTML files; this is not a quality score.
 
 ### Tickets
 
@@ -292,12 +293,16 @@ a turn that reaches it ends with the outcome `limit`, and its last tool
 call may still have changed the tree. Without it, only the VM's time
 limit (`--timeout`) bounds a turn.
 
+The guest sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000` explicitly for each
+model request. This keeps the output ceiling independent of model defaults;
+the external proxy still owns spending approval and limits.
+
 Both commands require `ANTHROPIC_BASE_URL` naming an explicit loopback HTTP
 port. Normal mode accepts only a proxy-issued placeholder of the supported
 format in `ANTHROPIC_API_KEY`; `--mock` discards that value and uses a fixed
 dummy against an explicitly supplied local fake endpoint. Approval, spending
-limits and provider credentials belong to the external proxy. No real
-model workflow has been verified. Against a local fake API that calls
+limits and provider credentials belong to the external proxy. A simple
+HTML comparison has completed with a real model. Against a local fake API that calls
 tools, Bash runs in the guest's tree as uid 1000, a Write and an Edit
 come out with `--tree-out`, and a permission request Claude makes on its
 own, such as for changing its settings in the tree, is denied and named

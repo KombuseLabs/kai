@@ -279,6 +279,9 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
     assert!(!dir.join("source/index.html").exists());
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), if fail_with { 3 } else { 4 });
+    for request in requests.iter() {
+        assert_eq!(request["max_tokens"], 32000);
+    }
 }
 
 #[tokio::test]
