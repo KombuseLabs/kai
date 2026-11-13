@@ -1,0 +1,27 @@
+[package]
+name = "guest"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "kai's init, PID 1 of every microVM, and the files it shares with the launcher"
+
+# The init. crates/vm's build script builds it for x86_64-unknown-linux-musl,
+# statically linked, and puts it into kai.
+[[bin]]
+name = "kai-init"
+path = "src/main.rs"
+
+[dependencies]
+# What std does not offer PID 1: mount, umount, reboot, kill of a process
+# group, and chroot and setuid between fork and exec. Already in the tree.
+libc = "0.2.191"
+# job.json and status.json.
+serde.workspace = true
+# Reads job.json and writes status.json. Already in the tree through github.
+serde_json = "1.0.154"
+
+[lints]
+workspace = true

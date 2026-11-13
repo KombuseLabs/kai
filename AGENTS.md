@@ -5,7 +5,8 @@ variant whether it is better than the shadow (the variant in use today),
 worse or not distinguishable, and what it cost. Nothing of that is built
 yet. What is: tickets come in from GitHub issues (`kai github sync`) into
 a local SQLite store, and `kai ticket qualify` says from what GitHub said
-whether kai may use each one. No ticket is run yet.
+whether kai may use each one. `kai vm run` runs one command in a fresh
+Firecracker microVM. No ticket is run yet.
 
 ## Where things are
 
@@ -17,10 +18,13 @@ whether kai may use each one. No ticket is run yet.
 | `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |
+| `crates/vm/` | microVMs on Firecracker: one command in a fresh VM (`kai vm run`; a tree, layers, ports, a way out through `proxy`'s egress), images from the recipes in `images/` (`kai vm image`), the pinned Firecracker and guest kernel (`kai vm fetch`), what a run needs (`kai vm doctor`); `src/run.rs` is a run step by step, `src/run/` its parts; the build script builds `guest` for musl and puts the init into kai |
+| `crates/guest/` | kai's init, PID 1 of every VM (`kai-init`, static, musl), and `job.json` and `status.json`, which it shares with `vm`; the example `probe` is the VM tests' program |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`; `config`, which finds and reads settings files; `http`, where every HTTP client starts; `process`, how a program is run, waited for and its output kept; `fs`, files put in place whole; `hash`, SHA-256 |
+| `images/` | the recipes of kai's VM images, one Dockerfile each, compiled into kai; their rules are in `crates/vm/src/image.rs` |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |
-| `contracts/` | the file formats kai reads and writes, one page each; none is defined yet |
+| `contracts/` | the file formats kai reads and writes, one page each, with an example: `kai-vm-run/1` |
 | `deny.toml` | which licences and sources dependencies may have |
 | `CONTRIBUTING.md` | what a change needs, the checks, and the settings of a clone that pushes here |
 | `tools/check-public.sh` | refuses what must not be in a public repository |
@@ -32,7 +36,10 @@ whether kai may use each one. No ticket is run yet.
 - **Logging.** Code logs through `tracing`'s macros. Only a program's
   `main` calls `helpers::logging::init` and decides where lines go; a
   library crate never does. Results go to standard output, log lines never.
-  clippy refuses `println!`, `eprintln!` and `dbg!` outside `cli`.
+  clippy refuses `println!`, `eprintln!` and `dbg!` outside `cli`, but for
+  three programs whose `allow` says why: kai-init, PID 1 without a logger,
+  writes to the VM's console; vm's build script talks to cargo; the test
+  program `probe` answers on its streams.
   A log line is a diagnostic, not a record: nothing a run found may exist
   only in a log, since a full queue drops lines.
 - **Async.** kai is async, on tokio: what waits on the network or on a VM

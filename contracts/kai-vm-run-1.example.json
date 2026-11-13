@@ -1,0 +1,19 @@
+{
+  "format": "kai-vm-run/1",
+  "outcome": "exited",
+  "exit_code": 7,
+  "output_complete": true,
+  "image": {
+    "recipe": "rust",
+    "id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "file": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "kernel": "sha256:e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2",
+  "firecracker": "sha256:b33f46cd6d88834cf6a4f8d184f08f219809c636236bffd286d233a60602a2ba",
+  "initramfs": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "cpus": 2,
+  "memory_mib": 2048,
+  "timeout_s": 600,
+  "wall_ms": 710,
+  "command_ms": 3
+}

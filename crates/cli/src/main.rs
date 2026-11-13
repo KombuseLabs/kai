@@ -8,6 +8,10 @@
 //!   what GitHub said: qualified, refused, or undecided while a rule is not
 //!   checked.
 //! - `kai store reset` empties the store; the next sync fetches everything.
+//! - `kai vm doctor` says what running a microVM needs on this machine and
+//!   what fixes each gap; `kai vm fetch` downloads the pinned Firecracker
+//!   and guest kernel into kai's cache and checks them; `kai vm run` runs
+//!   one command in a fresh microVM on an image file.
 //!
 //! Results go to standard output, log lines never do: they go to standard
 //! error, at the level `--log-level` names, and with `--log-file` also to a
@@ -27,9 +31,12 @@
 //! It is never an option, so that it stays out of the shell's history and
 //! the process list.
 //!
-//! Exit status: 0; 1 when a command fails (GitHub, the store); 2 for a
-//! command line, a `.env` or a settings file kai cannot read or that lacks
-//! what the command needs, or when logging cannot be set up.
+//! Exit status: 0; 1 when a command fails (GitHub, the store, a download,
+//! a need `kai vm doctor` finds unmet); 2 for a command line, a `.env` or a
+//! settings file kai cannot read or that lacks what the command needs, or
+//! when logging cannot be set up. `kai vm run` exits with its command's
+//! status; with 125 when the command has none (a time limit, a signal, a
+//! VM that failed), and with 130 when it was interrupted.
 //!
 //! Here: starting up, the options every command takes, the exit status.
 //! [`settings`]: kai.toml and which setting wins. [`cmd`]: the commands, a
@@ -125,9 +132,22 @@ fn main() -> ExitCode {
         None => tracing::debug!("no {CONFIG_FILE} found; kai's defaults apply"),
     }
 
+    // The one async runtime, on a single thread: a command waits on the
+    // network or on a VM, and on little else at the same time.
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("kai: cannot start the async runtime: {err}");
+            return ExitCode::from(1);
+        }
+    };
     let context = Context {
         store: settings::store_path(cli.store.as_deref(), config.as_ref()),
         config: config.as_ref(),
+        runtime: &runtime,
     };
     match cmd::run(cli.command.as_ref(), &context) {
         Ok(()) => ExitCode::SUCCESS,
@@ -139,5 +159,6 @@ fn main() -> ExitCode {
             eprintln!("kai: {err:#}");
             ExitCode::from(1)
         }
+        Err(Failure::Status(status)) => ExitCode::from(status),
     }
 }

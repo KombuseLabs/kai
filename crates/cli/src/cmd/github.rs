@@ -1,7 +1,5 @@
 //! `kai github`: reads tickets from GitHub, never writes there.
 
-use std::path::Path;
-
 use anyhow::Context as _;
 use clap::Subcommand;
 use types::RepoName;
@@ -32,15 +30,15 @@ pub(crate) fn run(command: &GithubCommand, context: &Context<'_>) -> Result<(), 
     match command {
         GithubCommand::Sync { board, full } => {
             let board = settings::board(board.as_ref(), context.config).map_err(Failure::Usage)?;
-            sync(&context.store, &board, settings::api(context.config), *full)
+            sync(context, &board, settings::api(context.config), *full)
         }
     }
 }
 
-/// Fetches `board`'s issues from the API at `api` into the store at
-/// `store_path`: all of them with `full`, else those changed since the
-/// last sync.
-fn sync(store_path: &Path, board: &RepoName, api: &str, full: bool) -> Result<(), Failure> {
+/// Fetches `board`'s issues from the API at `api` into the store: all of
+/// them with `full`, else those changed since the last sync.
+fn sync(context: &Context<'_>, board: &RepoName, api: &str, full: bool) -> Result<(), Failure> {
+    let store_path = &context.store;
     let mut store = super::store::open(store_path)?;
     let token = match std::env::var(TOKEN_VARIABLE) {
         Ok(token) if !token.is_empty() => ::github::SecretString::from(token),
@@ -54,11 +52,8 @@ fn sync(store_path: &Path, board: &RepoName, api: &str, full: bool) -> Result<()
     } else {
         store.cursor(board).context("cannot read the store")?
     };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("cannot start the async runtime")?;
-    let fetched = runtime
+    let fetched = context
+        .runtime
         .block_on(client.fetch_board(board, since.as_deref()))
         .with_context(|| format!("cannot fetch the issues of {board}"))?;
     store

@@ -1,0 +1,6 @@
+# typos' settings (CI's `text` job, and `git ls-files -z | xargs -0 typos`).
+# A word here is one typos takes for a misspelling but is a name kai uses.
+
+[default.extend-words]
+# mke2fs, e2fsprogs' program that makes an ext4 file system.
+mke = "mke"

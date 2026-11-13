@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 publish = false
 description = "kai's command line"
-# `cargo run` in the workspace runs kai, not proxy's fence-stand-in, the
-# other program the workspace builds.
+# `cargo run` in the workspace runs kai, not proxy's fence-stand-in or
+# guest's kai-init, the other programs the workspace builds.
 default-run = "kai"
 
 # The crate is `cli`; the program it builds is `kai`.
@@ -31,14 +31,20 @@ dotenvy = "0.15.7"
 engine = { path = "../engine" }
 github = { path = "../github" }
 helpers = { path = "../helpers" }
+# `kai vm run --proxy`: the egress's policy, which crates/vm opens.
+proxy = { path = "../proxy" }
 # The shape of kai.toml, read through helpers::config.
 serde.workspace = true
 store = { path = "../store" }
 # The async runtime the library crates' futures run on. A program starts
-# it; a library crate never does.
-tokio = { version = "1.54.1", features = ["rt"] }
+# it; a library crate never does. `signal` and `macros`: `kai vm run`
+# waits for its run, Ctrl-C or SIGTERM, whichever comes first, and stops
+# the VM on either signal.
+tokio = { version = "1.54.1", features = ["macros", "rt", "signal"] }
 tracing.workspace = true
 types = { path = "../types" }
+# `kai vm`: doctor, fetch, images and runs.
+vm = { path = "../vm" }
 
 [lints]
 workspace = true

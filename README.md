@@ -1,5 +1,11 @@
 # kai - kombuse auto improve
 
+kai compares variants of a coding agent on real tickets and says for each
+variant whether it is better than the one in use today, worse or not
+distinguishable, and what it cost. Nothing of that is built yet. What is:
+tickets from GitHub issues and the rules that say whether kai may use one,
+and microVMs that run one command each.
+
 ## What works today
 
 ```sh
@@ -10,9 +16,16 @@ cargo run -- github sync --board <owner/name>   # a board's issues into the stor
 cargo run -- ticket list            # the tickets in the store
 cargo run -- ticket qualify         # whether kai may use each, and why not
 cargo run -- store reset            # empties the store; the next sync fetches everything
+cargo run -- vm doctor              # what running a microVM needs here, and what fixes each gap
+cargo run -- vm fetch               # the pinned Firecracker and guest kernel into kai's cache
+cargo run -- vm image build rust    # the image of kai's Rust recipe, with Docker
+cargo run -- vm image list          # the recipes, and which images are built
+cargo run -- vm run --image rust -- cargo --version   # one command in a fresh microVM
 ```
 
-Tickets: an issue on a board repository, made with an issue form whose
+### Tickets
+
+A ticket is an issue on a board repository, made with an issue form whose
 fields are Instruction, Repo, Ref (a full commit sha), Check and Hidden
 tests, and labelled `kai`. `kai github sync` reads the board's issues
 changed since the last sync into the store, `.kai/store.sqlite` beside
@@ -28,16 +41,103 @@ label on; whether the repository has the commit and the hidden tests), and
 qualified only when every rule was checked and met. So today no ticket is
 qualified.
 
+### microVMs
+
+What a microVM needs on the host:
+
+- Linux on x86_64, and read and write access to `/dev/kvm`; no root.
+- e2fsprogs 1.47.1 or newer (`mke2fs`, `debugfs`, `e2fsck`),
+  squashfs-tools and tar.
+- Docker, only to build an image.
+- fence 0.3.0 or newer on `PATH`, only for `--proxy`.
+
+`kai vm doctor` checks each of them and names the fix for what is missing.
+Once per machine, then a first run:
+
+```sh
+cargo run -- vm doctor              # exits with 1 while a need is not met
+cargo run -- vm fetch               # downloads Firecracker and the guest kernel
+cargo run -- vm image build rust    # builds the Rust image with Docker
+cargo run -- vm run --image rust -- cargo --version
+```
+
+The last line boots a fresh VM on the image, prints what `cargo --version`
+wrote there (`cargo 1.98.1 (…)`) and exits with its status.
+
+`kai vm fetch` downloads Firecracker v1.18.0 from its GitHub release and
+the guest kernel 6.1.155 from Firecracker's CI bucket, checks each against
+the SHA-256 pinned in [crates/vm/src/pins.rs](crates/vm/src/pins.rs) and
+keeps only what matches, in `~/.cache/kai/vm` unless `--cache` or
+`vm.cache` says otherwise. Nothing else in kai downloads them.
+
+Images come from recipes kai ships, one Dockerfile each in
+[images/](images/): today `rust`, the official slim Rust image at a pinned
+digest with git, pkg-config and CA certificates from a dated Debian
+snapshot. `kai vm image build rust` builds it with Docker, packs its file
+system as squashfs into the cache, keeps its environment beside it, checks
+that it boots, and prints its id; building it again does nothing. Only
+building needs Docker.
+
+`kai vm run --image <recipe, image id or file> -- <command>` boots a fresh
+VM on the image (read-only, with an overlay on top), runs the command there
+as root with the image's environment (`--env` adds; an image file brings
+only `PATH`), prints what it wrote to each stream, and exits with its
+status; with 125 when it has none, such as at the time limit (`--timeout`,
+600 s). The guest has no network device. Each run leaves a directory, by
+default under `runs/` in the cache, with `result.json`
+([kai-vm-run/1](contracts/kai-vm-run-1.md)), the output, the console and the
+job drive.
+
+`--tree <dir>` copies a directory in as the work tree, the command's
+directory (`/job/tree`); the directory itself is never changed, and
+`--tree-out <dir>` gets the tree as the command left it. `--file <host
+path>=<path>` puts a file under `/job`, beside the tree. `--upper-out
+<file>` keeps what the command wrote outside its tree as a layer, when it
+exits with 0; `--layer <file>` lays such a layer over the image of a later
+run, read-only, deletions included. `--user <uid>:<gid>` runs the command
+as another user, `--disk` sizes the job drive.
+
+The guest's only ways out are the ones a run names. `--port
+<n>=unix:<path>` or `<n>=tcp:<host>:<port>` lets the command reach a socket
+or address of this machine at the guest's `127.0.0.1:<n>` (over vsock).
+`--proxy <host>:<port>` (repeatable) puts `fence proxy` behind the guest's
+`127.0.0.1:3128` and sets `HTTPS_PROXY` and the rest, so that tools reach
+the named hosts and nothing else; `--proxy-learn` lets every host through
+and records those not named. Its ledger is `proxy.jsonl` in the run
+directory, and `result.json` counts it.
+
+Limits today:
+
+- Linux on x86_64 with KVM only.
+- One recipe, `rust`.
+- `--tree-out` keeps neither hard links nor holes in files.
+- A VM belongs to the kai that started it and is stopped when kai stops,
+  on Ctrl-C or SIGTERM too. A kai killed outright cannot stop it; the VM
+  then ends at the guest's own time limit.
+
+### Settings
+
 A `.env` file, the first from the current directory upward, may hold the
 `KAI_*` variables; a variable already set wins over it.
 
-Settings: kai reads the first `kai.toml` from the current directory upward,
-or the file `--config` names. An option, or the environment variable beside
-it, wins over the file, and the file over kai's default. A key kai does not
+kai reads the first `kai.toml` from the current directory upward, or the
+file `--config` names. An option, or the environment variable beside it,
+wins over the file, and the file over kai's default. A key kai does not
 know is an error. [kai.toml](kai.toml) in this repository shows every key.
 
-kai needs Rust (`rust-toolchain.toml` names the version) and a C compiler:
-SQLite is compiled into kai.
+### Building
+
+kai needs Rust (`rust-toolchain.toml` names the version and the target
+x86_64-unknown-linux-musl, for kai's guest init; rustup installs both) and
+a C compiler: SQLite is compiled into kai. Without the musl target kai is
+built without its init, and `kai vm doctor` says so.
+
+## Not built yet
+
+- A ticket's repository and dependencies fetched and built in microVMs,
+  and its check, its hidden tests, run there.
+- The variants of an agent, the one in use today among them, a run of
+  each on the qualified tickets, and the verdict with what each cost.
 
 ## Licence
 

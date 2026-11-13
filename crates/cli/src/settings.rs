@@ -29,6 +29,8 @@ pub(crate) struct Config {
     github: GithubConfig,
     #[serde(default)]
     store: StoreConfig,
+    #[serde(default)]
+    vm: VmConfig,
 }
 
 /// The `[log]` table, as `--log-level` and `--log-file`.
@@ -54,6 +56,14 @@ struct GithubConfig {
 #[serde(deny_unknown_fields)]
 struct StoreConfig {
     path: Option<PathBuf>,
+}
+
+/// The `[vm]` table.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VmConfig {
+    /// As `kai vm --cache`.
+    cache: Option<PathBuf>,
 }
 
 /// The lowest level of the log lines on standard error.
@@ -170,4 +180,32 @@ pub(crate) fn api(config: Option<&Loaded<Config>>) -> &str {
     config
         .and_then(|config| config.value.github.api.as_deref())
         .unwrap_or(github::API)
+}
+
+/// Where `kai vm` keeps Firecracker and the guest kernel: `cache`
+/// (`--cache` or `KAI_VM_CACHE`), else `vm.cache` in the settings file,
+/// taken from the file's directory, else `$XDG_CACHE_HOME/kai/vm`, else
+/// `~/.cache/kai/vm`.
+pub(crate) fn vm_cache(
+    cache: Option<&Path>,
+    config: Option<&Loaded<Config>>,
+) -> anyhow::Result<PathBuf> {
+    if let Some(cache) = cache {
+        return Ok(cache.to_path_buf());
+    }
+    if let Some((config, cache)) =
+        config.and_then(|config| Some((config, config.value.vm.cache.as_deref()?)))
+    {
+        return Ok(config.resolve(cache));
+    }
+    let base = match std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
+        Some(base) if base.is_absolute() => base,
+        _ => match std::env::var_os("HOME") {
+            Some(home) if !home.is_empty() => PathBuf::from(home).join(".cache"),
+            _ => anyhow::bail!(
+                "no cache directory: HOME is not set; give --cache, set KAI_VM_CACHE, or set vm.cache in {CONFIG_FILE}"
+            ),
+        },
+    };
+    Ok(base.join("kai").join("vm"))
 }

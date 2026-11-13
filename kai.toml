@@ -30,3 +30,11 @@ level = "warn"
 # `kai store reset` empties at any time, since a sync fills it again. As
 # --store; a relative path is taken from this file's directory.
 # path = ".kai/store.sqlite"
+
+[vm]
+# Where `kai vm` keeps what it runs microVMs with: Firecracker and the
+# guest kernel, which `kai vm fetch` downloads, the initramfs, and the run
+# directories of `kai vm run` under runs/. As --cache (or KAI_VM_CACHE); a
+# relative path is taken from this file's directory.
+# Default: $XDG_CACHE_HOME/kai/vm, else ~/.cache/kai/vm.
+# cache = ".kai/vm"

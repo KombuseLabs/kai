@@ -1,0 +1,50 @@
+[package]
+name = "vm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "microVMs on Firecracker: the pinned artefacts, and what running one needs"
+
+[dependencies]
+# job.json and status.json, which the launcher shares with its init.
+guest = { path = "../guest" }
+# The HTTP client's TLS setup and the rule for plain HTTP (http), the
+# programs a run starts (process), files put in place whole (fs) and
+# SHA-256 (hash).
+helpers = { path = "../helpers" }
+# A run's way out through an egress (`--proxy`): its socket and ledger.
+proxy = { path = "../proxy" }
+# Downloads the artefacts. Async, on tokio; the program runs the runtime.
+# Features as in github: HTTP/1 only, TLS through helpers::http.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+# result.json.
+serde.workspace = true
+# Writes vm.json, job.json and result.json, reads status.json. Already in
+# the tree through github.
+serde_json = "1.0.154"
+# The module's error type, as in helpers.
+thiserror = "2.0.21"
+# Writes a download as it arrives; hashing and unpacking run on the
+# runtime's blocking threads. `process` and `time`: Firecracker is waited
+# for with a time limit and killed when its run is dropped; `macros`: an
+# image's export and its packing are awaited together; `net`: the ports'
+# relays. `process`
+# brings signal-hook-registry and its errno, the two crates this adds to the
+# tree (MIT or Apache-2.0).
+tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "process", "rt", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# Writes an invented image's JSON in the tests.
+serde_json = "1.0.154"
+# Runs the async tests.
+tokio = { version = "1.54.1", features = ["macros", "rt"] }
+# A local HTTP server that stands in for GitHub's releases: no network in
+# tests.
+wiremock = "0.6.5"
+
+[lints]
+workspace = true

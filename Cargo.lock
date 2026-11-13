@@ -179,11 +179,13 @@ dependencies = [
  "engine",
  "github",
  "helpers",
+ "proxy",
  "serde",
  "store",
  "tokio",
  "tracing",
  "types",
+ "vm",
 ]
 
 [[package]]
@@ -450,6 +452,15 @@ dependencies = [
  "tracing",
  "types",
  "wiremock",
+]
+
+[[package]]
+name = "guest"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1761,6 +1772,22 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "vm"
+version = "0.1.0"
+dependencies = [
+ "guest",
+ "helpers",
+ "proxy",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
 
 [[package]]
 name = "walkdir"

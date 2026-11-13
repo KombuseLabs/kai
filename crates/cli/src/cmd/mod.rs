@@ -3,11 +3,12 @@
 //! new module and a line in [`Command`] and [`run`].
 //!
 //! The crates kai is made of are named with a leading `::`, since some of
-//! these modules share their names (`github`, `store`).
+//! these modules share their names (`github`, `store`, `vm`).
 
 mod github;
 mod store;
 mod ticket;
+mod vm;
 
 use std::path::PathBuf;
 
@@ -28,15 +29,20 @@ pub(crate) enum Command {
     /// The store, kai's cache of the tickets it fetched
     #[command(subcommand)]
     Store(store::StoreCommand),
+    /// microVMs: what running one needs, the pinned Firecracker and guest kernel, and one command in a fresh VM
+    Vm(vm::VmArgs),
 }
 
 /// What every command may need: the global options, resolved against the
-/// settings file.
+/// settings file, and the async runtime.
 pub(crate) struct Context<'a> {
     /// The store's file.
     pub(crate) store: PathBuf,
     /// The settings file, if one was read.
     pub(crate) config: Option<&'a Loaded<Config>>,
+    /// The runtime `main` started, on which a command runs what waits on
+    /// the network or on a VM.
+    pub(crate) runtime: &'a tokio::runtime::Runtime,
 }
 
 /// Why a command did not succeed, and so the exit status.
@@ -45,6 +51,9 @@ pub(crate) enum Failure {
     Usage(anyhow::Error),
     /// The command failed while it ran: 1.
     Run(anyhow::Error),
+    /// The exit status of a command kai ran for the person, passed on as
+    /// it is; what to say was said already.
+    Status(u8),
 }
 
 impl From<anyhow::Error> for Failure {
@@ -63,5 +72,6 @@ pub(crate) fn run(command: Option<&Command>, context: &Context<'_>) -> Result<()
         Some(Command::Github(command)) => github::run(command, context),
         Some(Command::Ticket(command)) => ticket::run(command, context),
         Some(Command::Store(command)) => store::run(command, context),
+        Some(Command::Vm(args)) => vm::dispatch(args, context),
     }
 }
