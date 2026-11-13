@@ -1,10 +1,14 @@
 # kai - kombuse auto improve
 
-kai compares variants of a coding agent on real tickets and says for each
-variant whether it is better than the one in use today, worse or not
-distinguishable, and what it cost. Nothing of that is built yet. What is:
-tickets from GitHub issues and the rules that say whether kai may use one,
-and microVMs that run one command each, a ticket's code among them.
+kai runs the same coding task twice: once without additional instructions
+and once with an extra prompt or a pinned add-on such as Ponytail. The two
+Claude sessions run in separate microVMs, in parallel by default, and keep
+their answers and generated files in separate result directories.
+
+eval-reporter and Bench Board show both results with token usage, recorded
+proxy costs and individual runtimes. There is no grader or automatic winner.
+The repository also includes GitHub ticket import and qualification rules,
+VM management, and dependency preparation for Rust repositories.
 
 ## What works today
 
@@ -100,6 +104,7 @@ included task the result is:
 .runs/ponytail/
   task.json
   results/<timestamp>/
+    pair.json
     input/
     plain/
       tree/
@@ -143,6 +148,7 @@ separately, such as `comparison/without/tree/index.html` and
 
 ```text
 comparison/
+  pair.json          frozen inputs, arm names and execution times
   input/             the shared starting files
   without/
     tree/            files produced without the extra prompt
@@ -168,6 +174,24 @@ uses a local fake API instead. Parallel runs, separate generated files,
 prompt delivery and partial failure are tested with that fake API in
 real microVMs. A live HTML-calculator pair has also completed through the
 external proxy with separate exported HTML files; this is not a quality score.
+
+### View comparison metrics
+
+New comparisons also write [pair.json](contracts/kai-pair-1.md), a frozen
+record of the task, arm names and separate execution times. With
+eval-reporter 0.8 or newer, collect one result directory:
+
+```sh
+eval-reporter collect kai-run .runs/ponytail/results/<timestamp> --codebase none --send
+```
+
+The reporter's existing watcher can discover these results automatically.
+In its policy, add `[kai_run]` with `runs = ["/absolute/path/to/task/results"]`,
+`codebase = "none"` and `auto_send = true`. Sending also requires the global
+`auto_send` setting and a configured sink. Run `eval-reporter watch`.
+Bench Board displays both answers, result paths, input/output/cache tokens,
+settled proxy costs and individual runtimes. Unknown values stay unknown;
+there is no grader or winner. Old results without `pair.json` are not imported.
 
 ### Tickets
 
@@ -371,36 +395,20 @@ x86_64-unknown-linux-musl, for kai's guest init; rustup installs both) and
 a C compiler: SQLite is compiled into kai. Without the musl target kai is
 built without its init, and `kai vm doctor` says so.
 
-## Not built yet
+## Scope and remaining limits
 
-- A ticket's check, its hidden tests, run in a microVM on the layers
-  `kai ticket deps` makes.
-- A real-model run through the external proxy. Sessions, tool calls and
-  add-ons are tested with a fake API only; whether a model follows an
-  add-on's skill is not tested.
-- The variants of an agent, the one in use today among them, a run of
-  each on the qualified tickets, and the verdict with what each cost.
+The simple comparison MVP is implemented, including real-model execution
+through the external proxy and reporting of both results. Whether a model
+follows an add-on's instructions is for the owner to inspect; execution
+completion is not a quality judgment.
+
+The GitHub ticket workflow is separate from this MVP. Running a ticket's
+check and hidden tests on the layers prepared by `kai ticket deps` is not
+implemented. Automated grading, statistical verdicts and automatic variant
+selection are outside the simple comparison MVP.
 
 ## Licence
 
 Copyright 2026 Kombuse Labs. Apache-2.0, see [LICENSE](LICENSE) and
 [NOTICE](NOTICE). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security
 reports: [SECURITY.md](SECURITY.md).
-
-### View comparison metrics
-
-New comparisons also write [pair.json](contracts/kai-pair-1.md), a frozen
-record of the task, arm names and separate execution times. With
-eval-reporter 0.8 or newer, collect one result directory:
-
-```sh
-eval-reporter collect kai-run .runs/ponytail/results/<timestamp> --codebase none --send
-```
-
-The reporter's existing watcher can discover these results automatically.
-In its policy, add `[kai_run]` with `runs = ["/absolute/path/to/task/results"]`,
-`codebase = "none"` and `auto_send = true`. Sending also requires the global
-`auto_send` setting and a configured sink. Run `eval-reporter watch`.
-Bench Board displays both answers, result paths, input/output/cache tokens,
-settled proxy costs and individual runtimes. Unknown values stay unknown;
-there is no grader or winner. Old results without `pair.json` are not imported.

@@ -1,9 +1,11 @@
 # kai: notes for coding agents
 
-kai compares variants of a coding agent on real tickets and says for each
-variant whether it is better than the shadow (the variant in use today),
-worse or not distinguishable, and what it cost. Nothing of that is built
-yet. What is: tickets come in from GitHub issues (`kai github sync`) into
+kai runs the same coding task with and without an extra prompt or pinned
+add-on, in two independent microVMs, parallel by default. It keeps both
+results separately and reports their tokens, recorded proxy costs and
+runtimes through eval-reporter and Bench Board. There is no grader or
+automatic winner. The repository also contains a separate ticket workflow:
+tickets come in from GitHub issues (`kai github sync`) into
 a local SQLite store, and `kai ticket qualify` says from what GitHub said
 whether kai may use each one. `kai vm run` runs one command in a fresh
 Firecracker microVM, and `kai ticket deps` fetches and builds a ticket's
@@ -21,7 +23,9 @@ Results go to `<name>/results/<timestamp>/`, in the directories named by
 the task's `arms` (`plain` and `ponytail` in the included task).
 It has no grader or statistical verdict. These paths are tested against a local fake
 model; a simple HTML pair has also completed with a real model through the
-external proxy. No ticket's check has been verified yet.
+external proxy. Comparisons write a frozen `kai-pair/1` record in `pair.json`;
+eval-reporter 0.8+ reads it with `collect kai-run` or its configured watcher.
+No ticket's check has been verified yet.
 `tools/start-proxy` starts the existing external proxy in one terminal;
 `kai proxy` publishes its loopback route and temporary placeholder in a
 private locked file, read automatically by agent commands in another
