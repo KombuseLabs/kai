@@ -24,7 +24,7 @@ whether kai may use each one. No ticket is run yet.
 | `CONTRIBUTING.md` | what a change needs, the checks, and the settings of a clone that pushes here |
 | `tools/check-public.sh` | refuses what must not be in a public repository |
 | `.githooks/` | `pre-commit` and `pre-push`: no commit and no push that is unsigned or by an address that is not a GitHub noreply address; `allowed_signers` lists who may sign |
-| `specs/` | gitignored; exists only in a maintainer's checkout |
+| `board/` | gitignored; exists only in a maintainer's checkout |
 
 ## Rules
 

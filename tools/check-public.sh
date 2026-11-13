@@ -6,7 +6,7 @@
 #
 # The private names are not listed here, since that would publish them:
 # they are read, one extended regular expression per line, from
-# specs/private-names.txt, which exists only in a maintainer's checkout.
+# board/private-names.txt, which exists only in a maintainer's checkout.
 # Where the file is missing (in CI, in a fresh clone) that one check is
 # skipped, and the script says so.
 #
@@ -36,13 +36,13 @@ check 'an e-mail address' \
   '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' \
   '@users\.noreply\.github\.com|git@github\.com'
 
-if [ -f specs/private-names.txt ]; then
+if [ -f board/private-names.txt ]; then
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     check "a private project name ($name)" "$name"
-  done < specs/private-names.txt
+  done < board/private-names.txt
 else
-  echo 'check-public: specs/private-names.txt is not here; private names are not checked' >&2
+  echo 'check-public: board/private-names.txt is not here; private names are not checked' >&2
 fi
 
 if git rev-parse --verify --quiet HEAD >/dev/null; then
