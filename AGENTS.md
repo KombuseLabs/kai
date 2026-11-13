@@ -12,9 +12,10 @@ and further crates kai consists of is not decided.
 | --- | --- |
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai` |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
-| `crates/engine/` | what kai does, as a library; never depends on `cli` |
+| `crates/engine/` | what kai does, as a library: today the static qualify rules; never depends on `cli` |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`, and `config`, which finds and reads settings files |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
+| `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |
 | `contracts/` | the file formats kai reads and writes, one page each; none is defined yet |
 | `deny.toml` | which licences and sources dependencies may have |
 | `CONTRIBUTING.md` | what a change needs, the checks, and the settings of a clone that pushes here |

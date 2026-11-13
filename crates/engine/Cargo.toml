@@ -10,6 +10,7 @@ description = "What kai does, as a library; the command line calls it"
 
 [dependencies]
 tracing.workspace = true
+types = { path = "../types" }
 
 [lints]
 workspace = true
