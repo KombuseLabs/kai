@@ -17,7 +17,7 @@ whether kai may use each one. No ticket is run yet.
 | `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |
-| `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`; `config`, which finds and reads settings files; `http`, where every HTTP client starts; `process`, how a program is run, waited for and its output kept |
+| `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`; `config`, which finds and reads settings files; `http`, where every HTTP client starts; `process`, how a program is run, waited for and its output kept; `fs`, files put in place whole; `hash`, SHA-256 |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |
 | `contracts/` | the file formats kai reads and writes, one page each; none is defined yet |

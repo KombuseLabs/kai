@@ -500,6 +500,7 @@ name = "helpers"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

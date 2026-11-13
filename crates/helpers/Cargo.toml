@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Infrastructure the other crates share: logging, settings files, HTTP clients, child processes"
+description = "Infrastructure the other crates share: logging, settings files, HTTP clients, child processes, files put in place whole, SHA-256"
 
 [dependencies]
 tracing.workspace = true
@@ -34,6 +34,9 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 # signal-hook-registry and its errno, the two crates this adds to the tree
 # (MIT or Apache-2.0).
 tokio = { version = "1.54.1", features = ["io-util", "process", "rt", "time"] }
+# helpers::hash: SHA-256. Already in the tree as rustls' crypto provider, so
+# it adds no crate.
+ring = "0.17.14"
 
 [dev-dependencies]
 # The tests read the JSON lines a sink wrote.
