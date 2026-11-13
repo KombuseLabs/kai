@@ -10,6 +10,8 @@
             "url": "https://github.com/example-org/example-board/issues/1",
             "state": "OPEN",
             "body": "How are the widgets counted?",
+            "author": { "login": "example-asker" },
+            "createdAt": "2026-01-01T01:00:00Z",
             "updatedAt": "2026-01-02T10:00:00Z",
             "labels": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
             "timelineItems": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
@@ -20,6 +22,8 @@
             "url": "https://github.com/example-org/example-board/issues/2",
             "state": "OPEN",
             "body": "### Instruction\n\nMake `widgets --count` print how many widgets there are.\n\n### Repo\n\nexample-org/example-code\n\n### Ref\n\n0123456789abcdef0123456789abcdef01234567\n\n### Check\n\n_No response_\n\n### Hidden tests\n\ntests/hidden/count.rs",
+            "author": { "login": "example-maintainer" },
+            "createdAt": "2026-01-01T02:00:00Z",
             "updatedAt": "2026-01-03T10:00:00Z",
             "labels": { "pageInfo": { "hasNextPage": false }, "nodes": [{ "name": "kai" }, { "name": "bug" }] },
             "timelineItems": {

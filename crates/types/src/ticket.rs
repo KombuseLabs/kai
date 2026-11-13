@@ -2,8 +2,9 @@
 
 use crate::IssueId;
 
-/// An issue on a board, as kai fetched it. Whether kai may use it is what
-/// qualifying it decides; a ticket is kept whether it qualifies or not.
+/// An issue on a board as kai reads it: an [`Issue`](crate::Issue) with
+/// its body read as the kai ticket form (`engine::ticket`). Whether kai
+/// may use it is what qualifying it decides.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ticket {
     /// The issue the ticket was made from: where it came from.
@@ -16,9 +17,14 @@ pub struct Ticket {
     pub state: IssueState,
     /// The labels on the issue now, in GitHub's order.
     pub labels: Vec<String>,
+    /// Whether [`labels`](Self::labels) are all of them.
+    pub labels_complete: bool,
     /// Each time a label was put on the issue, oldest first, including
     /// labels that were removed again.
     pub label_events: Vec<LabelEvent>,
+    /// Whether [`label_events`](Self::label_events) are all of them; when
+    /// not, the latest are the ones missing.
+    pub label_events_complete: bool,
     /// When the issue last changed, as GitHub wrote it (RFC 3339).
     pub updated_at: String,
     /// The answers of the kai ticket form, or `None` when the issue's body

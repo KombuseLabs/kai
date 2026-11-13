@@ -1,10 +1,12 @@
-//! Reads a board's issues from GitHub into kai's [`Ticket`]s. One way:
-//! nothing here writes to GitHub.
+//! Reads a board's issues from GitHub into [`Issue`]s, as GitHub said
+//! them. One way: nothing here writes to GitHub.
 //!
-//! - **One GraphQL query per page of 50 issues**: each issue with its body,
-//!   its labels, and who put each label on (the timeline's labeled events),
-//!   oldest change first. A body that is the kai ticket form is read into a
-//!   [`types::Form`].
+//! - **One GraphQL query per page of 50 issues**: each issue with its
+//!   author, its body, its labels, and who put each label on (the
+//!   timeline's labeled events), oldest change first. The body is kept
+//!   whole; reading it as the kai ticket form is `engine::ticket`'s. More
+//!   than 100 labels or labeled events are not fetched, and the issue says
+//!   so ([`Issue::labels_complete`], [`Issue::label_events_complete`]).
 //! - **From a cursor**: [`Client::fetch_board`] takes the time the last
 //!   sync recorded and asks only for issues changed since then, and says
 //!   where the next sync starts.
@@ -14,8 +16,6 @@
 //! - **Async**, on reqwest and so on tokio. The program that calls
 //!   [`Client::fetch_board`] runs the runtime; this crate never starts one.
 
-mod form;
-
 use std::time::Duration;
 
 use helpers::http;
@@ -24,7 +24,7 @@ use secrecy::ExposeSecret as _;
 pub use secrecy::SecretString;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use types::{IssueId, IssueState, LabelEvent, RepoName, Ticket};
+use types::{Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// The API of github.com.
 pub const API: &str = "https://api.github.com";
@@ -35,9 +35,9 @@ const USER_AGENT: &str = concat!("kai/", env!("CARGO_PKG_VERSION"));
 /// Issues asked for per request.
 const PAGE: u32 = 50;
 
-/// The board's issues, oldest change first: labels, and every time a label
-/// was put on. Labels and events beyond 100 are not fetched, and a warning
-/// says so.
+/// The board's issues, oldest change first: author, body, labels, and
+/// every time a label was put on. Labels and events beyond 100 are not
+/// fetched; `hasNextPage` says whether there are more.
 const BOARD_QUERY: &str = r#"
 query ($owner: String!, $name: String!, $since: DateTime, $after: String, $page: Int!) {
   repository(owner: $owner, name: $name) {
@@ -49,7 +49,9 @@ query ($owner: String!, $name: String!, $since: DateTime, $after: String, $page:
         title
         url
         state
+        author { login }
         body
+        createdAt
         updatedAt
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         timelineItems(itemTypes: [LABELED_EVENT], first: 100) {
@@ -75,9 +77,8 @@ pub struct Client {
 /// What one sync fetched.
 #[derive(Debug)]
 pub struct Fetched {
-    /// The issues changed since the cursor, as tickets, oldest change
-    /// first.
-    pub tickets: Vec<Ticket>,
+    /// The issues changed since the cursor, oldest change first.
+    pub issues: Vec<Issue>,
     /// Where the next sync starts: the latest change among the tickets, or
     /// the cursor given when nothing changed; `None` when there was neither.
     pub since: Option<String>,
@@ -112,7 +113,7 @@ impl Client {
         board: &RepoName,
         since: Option<&str>,
     ) -> Result<Fetched, Error> {
-        let mut tickets = Vec::new();
+        let mut issues = Vec::new();
         let mut after = None;
         loop {
             let request = Request {
@@ -132,23 +133,23 @@ impl Client {
             let repository = data
                 .repository
                 .ok_or_else(|| Error::NoBoard(board.clone()))?;
-            let issues = repository.issues;
-            tracing::debug!(%board, issues = issues.nodes.len(), "fetched a page of issues");
-            for node in issues.nodes.into_iter().flatten() {
-                tickets.push(node.into_ticket(board));
+            let page = repository.issues;
+            tracing::debug!(%board, issues = page.nodes.len(), "fetched a page of issues");
+            for node in page.nodes.into_iter().flatten() {
+                issues.push(node.into_issue(board));
             }
-            match (issues.page_info.has_next_page, issues.page_info.end_cursor) {
+            match (page.page_info.has_next_page, page.page_info.end_cursor) {
                 (true, Some(cursor)) => after = Some(cursor),
                 _ => break,
             }
         }
-        let since = tickets
+        let since = issues
             .iter()
-            .map(|ticket| ticket.updated_at.as_str())
+            .map(|issue| issue.updated_at.as_str())
             .chain(since)
             .max()
             .map(str::to_owned);
-        Ok(Fetched { tickets, since })
+        Ok(Fetched { issues, since })
     }
 
     /// Sends one GraphQL request and returns its `data`. An HTTP error, or
@@ -292,7 +293,10 @@ mod wire {
         pub(super) title: String,
         pub(super) url: String,
         pub(super) state: String,
+        /// `null` for a deleted account.
+        pub(super) author: Option<Actor>,
         pub(super) body: String,
+        pub(super) created_at: String,
         pub(super) updated_at: String,
         pub(super) labels: Option<Connection<Label>>,
         pub(super) timeline_items: Connection<LabeledEvent>,
@@ -321,28 +325,24 @@ mod wire {
     }
 
     impl Issue {
-        pub(super) fn into_ticket(self, board: &RepoName) -> Ticket {
-            let issue = IssueId {
+        pub(super) fn into_issue(self, board: &RepoName) -> super::Issue {
+            let id = IssueId {
                 repo: board.clone(),
                 number: self.number,
             };
-            let labels = match self.labels {
-                Some(labels) => {
-                    if labels.page_info.has_next_page {
-                        tracing::warn!(%issue, "more than 100 labels; the rest are not fetched");
-                    }
+            let (labels, labels_complete) = match self.labels {
+                Some(labels) => (
                     labels
                         .nodes
                         .into_iter()
                         .flatten()
                         .map(|label| label.name)
-                        .collect()
-                }
-                None => Vec::new(),
+                        .collect(),
+                    !labels.page_info.has_next_page,
+                ),
+                None => (Vec::new(), true),
             };
-            if self.timeline_items.page_info.has_next_page {
-                tracing::warn!(%issue, "more than 100 labels were put on; the later ones are not fetched");
-            }
+            let label_events_complete = !self.timeline_items.page_info.has_next_page;
             let label_events = self
                 .timeline_items
                 .nodes
@@ -356,19 +356,26 @@ mod wire {
                     })
                 })
                 .collect();
-            Ticket {
+            if !labels_complete || !label_events_complete {
+                tracing::debug!(%id, labels_complete, label_events_complete, "not every label or labeled event was fetched");
+            }
+            super::Issue {
+                id,
+                title: self.title,
+                url: self.url,
                 state: if self.state == "OPEN" {
                     IssueState::Open
                 } else {
                     IssueState::Closed
                 },
-                form: form::parse(&self.body),
-                issue,
-                title: self.title,
-                url: self.url,
-                labels,
-                label_events,
+                author: self.author.map(|author| author.login),
+                created_at: self.created_at,
                 updated_at: self.updated_at,
+                body: self.body,
+                labels,
+                labels_complete,
+                label_events,
+                label_events_complete,
             }
         }
     }

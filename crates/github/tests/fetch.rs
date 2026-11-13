@@ -6,7 +6,7 @@ use std::path::Path;
 use github::{Client, Error};
 use secrecy::SecretString;
 use serde_json::{Value, json};
-use types::{Form, IssueState, LabelEvent, RepoName};
+use types::{IssueState, LabelEvent, RepoName};
 use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -42,7 +42,7 @@ fn board() -> RepoName {
 }
 
 #[tokio::test]
-async fn every_page_is_fetched_and_read_into_tickets() {
+async fn every_page_is_fetched_and_read_into_issues_as_github_said_them() {
     let github = MockServer::start().await;
     let first =
         json!({ "owner": "example-org", "name": "example-board", "since": null, "after": null });
@@ -56,19 +56,22 @@ async fn every_page_is_fetched_and_read_into_tickets() {
 
     let fetched = client(&github).fetch_board(&board(), None).await.unwrap();
 
-    let numbers: Vec<u64> = fetched.tickets.iter().map(|t| t.issue.number).collect();
+    let numbers: Vec<u64> = fetched.issues.iter().map(|i| i.id.number).collect();
     assert_eq!(numbers, [1, 2, 3]);
     assert_eq!(fetched.since.as_deref(), Some("2026-01-04T10:00:00Z"));
 
-    let [question, count, sort] = &fetched.tickets[..] else {
+    let [question, count, sort] = &fetched.issues[..] else {
         unreachable!()
     };
-    assert_eq!(question.form, None);
+    assert_eq!(question.body, "How are the widgets counted?");
+    assert_eq!(question.author.as_deref(), Some("example-asker"));
     assert!(question.labels.is_empty());
 
-    assert_eq!(count.issue.to_string(), "example-org/example-board#2");
+    assert_eq!(count.id.to_string(), "example-org/example-board#2");
     assert_eq!(count.state, IssueState::Open);
+    assert_eq!(count.created_at, "2026-01-01T02:00:00Z");
     assert_eq!(count.labels, ["kai", "bug"]);
+    assert!(count.labels_complete && count.label_events_complete);
     assert_eq!(
         count.label_events,
         [
@@ -84,19 +87,16 @@ async fn every_page_is_fetched_and_read_into_tickets() {
             },
         ]
     );
-    assert_eq!(
-        count.form,
-        Some(Form {
-            instruction: Some(
-                "Make `widgets --count` print how many widgets there are.".to_owned()
-            ),
-            repo: Some("example-org/example-code".to_owned()),
-            base_ref: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
-            check: None,
-            hidden_tests: Some("tests/hidden/count.rs".to_owned()),
-        })
+    assert!(
+        count
+            .body
+            .starts_with("### Instruction\n\nMake `widgets --count`")
     );
+
     assert_eq!(sort.state, IssueState::Closed);
+    assert_eq!(sort.author, None);
+    assert!(sort.labels_complete);
+    assert!(!sort.label_events_complete);
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ async fn the_cursor_is_sent_and_kept_when_nothing_changed() {
         .await
         .unwrap();
 
-    assert!(fetched.tickets.is_empty());
+    assert!(fetched.issues.is_empty());
     assert_eq!(fetched.since.as_deref(), Some(since));
 }
 

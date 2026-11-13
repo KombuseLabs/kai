@@ -18,7 +18,9 @@
 //!     url: "https://github.com/example-org/example-board/issues/7".to_owned(),
 //!     state: IssueState::Open,
 //!     labels: vec![],
+//!     labels_complete: true,
 //!     label_events: vec![],
+//!     label_events_complete: true,
 //!     updated_at: "2026-01-02T03:04:05Z".to_owned(),
 //!     form: Some(Form::default()),
 //! };
@@ -68,6 +70,13 @@ pub fn qualify(ticket: &Ticket) -> Qualification {
 fn label(ticket: &Ticket) -> Finding {
     if ticket.labels.iter().any(|label| label == LABEL) {
         Finding::pass(Rule::Label)
+    } else if !ticket.labels_complete {
+        Finding::not_checked(
+            Rule::Label,
+            format!(
+                "the issue has more labels than were fetched, and `{LABEL}` is not among those"
+            ),
+        )
     } else {
         Finding::fail(Rule::Label, format!("the issue has no `{LABEL}` label"))
     }

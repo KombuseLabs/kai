@@ -1,7 +1,7 @@
 //! What kai does, as a library. It knows nothing of the command line: `cli`
 //! calls it and prints. It logs through `tracing` and never decides where
-//! the lines go. For now it knows the greeting, [`qualify`]: whether a
-//! ticket may be used, judged from what GitHub says about it, and
+//! the lines go. For now it knows the greeting, [`ticket`]: an issue
+//! read as a ticket, [`qualify`]: whether a ticket may be used, judged from what GitHub says about it, and
 //! [`deps`]: a ticket's repository and its dependencies, fetched and built
 //! in microVMs into two layers, and [`study`]: the plan, statistics and
 //! verdict of a comparison of variants, as pure computation. Agent programs and their layers belong to
@@ -10,6 +10,7 @@
 pub mod deps;
 pub mod qualify;
 pub mod study;
+pub mod ticket;
 
 /// The line kai greets with.
 pub fn greeting() -> &'static str {

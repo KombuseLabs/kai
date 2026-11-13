@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use store::Store;
-use types::{Form, IssueId, IssueState, Ticket};
+use types::{Issue, IssueId, IssueState};
 
 /// A fresh directory of the test's own, outside the repository so that no
 /// `.env` or `kai.toml` above it is found.
@@ -40,25 +40,29 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-fn ticket(number: u64, labels: &[&str], instruction: &str) -> Ticket {
-    Ticket {
-        issue: IssueId {
+/// An invented issue whose body is the kai ticket form, as GitHub writes
+/// it, with `instruction` in it.
+fn issue(number: u64, labels: &[&str], instruction: &str) -> Issue {
+    Issue {
+        id: IssueId {
             repo: "example-org/example-board".parse().unwrap(),
             number,
         },
         title: format!("Invented ticket {number}"),
         url: format!("https://github.com/example-org/example-board/issues/{number}"),
         state: IssueState::Open,
-        labels: labels.iter().map(|label| label.to_string()).collect(),
-        label_events: vec![],
+        author: Some("example-author".to_owned()),
+        created_at: "2026-01-01T00:00:00Z".to_owned(),
         updated_at: "2026-01-02T03:04:05Z".to_owned(),
-        form: Some(Form {
-            instruction: Some(instruction.to_owned()),
-            repo: Some("example-org/example-code".to_owned()),
-            base_ref: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
-            check: Some("cargo test --locked".to_owned()),
-            hidden_tests: Some("tests/hidden/invented.rs".to_owned()),
-        }),
+        body: format!(
+            "### Instruction\n\n{instruction}\n\n### Repo\n\nexample-org/example-code\n\n\
+             ### Ref\n\n0123456789abcdef0123456789abcdef01234567\n\n\
+             ### Check\n\ncargo test --locked\n\n### Hidden tests\n\ntests/hidden/invented.rs\n"
+        ),
+        labels: labels.iter().map(|label| label.to_string()).collect(),
+        labels_complete: true,
+        label_events: vec![],
+        label_events_complete: true,
     }
 }
 
@@ -67,13 +71,13 @@ fn ticket(number: u64, labels: &[&str], instruction: &str) -> Ticket {
 /// whose instruction holds a code block.
 fn store_with_tickets(dir: &Path) {
     let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
-    let tickets = [
-        ticket(1, &[], "Count the widgets."),
-        ticket(2, &["kai"], "Count the widgets."),
-        ticket(3, &["kai"], "Count them:\n\n```\nwidgets.len()\n```"),
+    let issues = [
+        issue(1, &[], "Count the widgets."),
+        issue(2, &["kai"], "Count the widgets."),
+        issue(3, &["kai"], "Count them:\n\n```\nwidgets.len()\n```"),
     ];
     let board = "example-org/example-board".parse().unwrap();
-    store.record_sync(&board, &tickets, None).unwrap();
+    store.record_sync(&board, &issues, None, false).unwrap();
 }
 
 #[test]
@@ -132,12 +136,36 @@ fn store_reset_empties_the_store() {
     let output = kai(&dir, &["store", "reset"], &[]);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
-        stdout(&output).ends_with(": emptied, 3 tickets removed\n"),
+        stdout(&output).ends_with(": emptied, 3 issues removed\n"),
         "{}",
         stdout(&output)
     );
     let store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
-    assert!(store.tickets().unwrap().is_empty());
+    assert!(store.issues().unwrap().is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn store_status_says_per_board_when_it_was_synced() {
+    let dir = dir("status");
+    let output = kai(&dir, &["store", "status"], &[]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("no store here"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(!dir.join(".kai").exists());
+
+    store_with_tickets(&dir);
+    let output = kai(&dir, &["store", "status"], &[]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(
+        out.starts_with("example-org/example-board: 3 issues, last synced 20")
+            && out.ends_with(", last in full never\n"),
+        "{out}"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -230,7 +258,7 @@ fn sync_that_cannot_reach_github_fails_and_leaves_the_store_as_it_was() {
     );
     assert!(!err.contains("invented-token"), "{err}");
     let store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
-    assert_eq!(store.tickets().unwrap().len(), 3);
+    assert_eq!(store.issues().unwrap().len(), 3);
     std::fs::remove_dir_all(dir).unwrap();
 }
 

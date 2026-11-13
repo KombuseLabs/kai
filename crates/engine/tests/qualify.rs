@@ -14,7 +14,9 @@ fn good() -> Ticket {
         url: "https://github.com/example-org/example-board/issues/3".to_owned(),
         state: IssueState::Open,
         labels: vec!["bug".to_owned(), "kai".to_owned()],
+        labels_complete: true,
         label_events: vec![],
+        label_events_complete: true,
         updated_at: "2026-01-02T03:04:05Z".to_owned(),
         form: Some(Form {
             instruction: Some("Make `widgets --count` print the number of widgets.".to_owned()),
@@ -59,6 +61,17 @@ fn without_the_kai_label_it_is_refused() {
     ticket.labels.retain(|label| label != "kai");
     assert!(fails(&ticket, Rule::Label));
     assert_eq!(qualify(&ticket).verdict(), Verdict::Refused);
+}
+
+#[test]
+fn without_the_kai_label_among_too_many_fetched_it_is_not_checked() {
+    let mut ticket = good();
+    ticket.labels.retain(|label| label != "kai");
+    ticket.labels_complete = false;
+    assert!(matches!(
+        outcome(&ticket, Rule::Label),
+        Outcome::NotChecked(_)
+    ));
 }
 
 #[test]

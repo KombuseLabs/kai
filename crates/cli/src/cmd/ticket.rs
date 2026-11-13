@@ -221,11 +221,14 @@ fn shell_word(word: &[u8]) -> Vec<u8> {
     quoted
 }
 
-/// Every ticket in the store; a hint on standard error when there is none.
+/// Every issue in the store, read as a ticket; a hint on standard error when there is none.
 fn tickets(store_path: &Path) -> anyhow::Result<Vec<Ticket>> {
-    let tickets = super::store::open(store_path)?
-        .tickets()
-        .context("cannot read the store")?;
+    let tickets: Vec<Ticket> = super::store::open(store_path)?
+        .issues()
+        .context("cannot read the store")?
+        .iter()
+        .map(::engine::ticket::from_issue)
+        .collect();
     if tickets.is_empty() {
         eprintln!(
             "kai: the store {} holds no tickets; `kai github sync` fetches them",

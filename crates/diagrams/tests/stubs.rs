@@ -188,6 +188,7 @@ fn the_types_of_docs_qualify_make_the_round_trip() {
         [
             "Finding",
             "Form",
+            "Issue",
             "IssueId",
             "IssueState",
             "LabelEvent",

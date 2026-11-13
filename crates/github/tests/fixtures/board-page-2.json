@@ -10,10 +10,12 @@
             "url": "https://github.com/example-org/example-board/issues/3",
             "state": "CLOSED",
             "body": "### Instruction\n\nSort the widgets by name.\n\n### Repo\n\nexample-org/example-code\n\n### Ref\n\n89abcdef0123456789abcdef0123456789abcdef\n\n### Check\n\ncargo test --locked\n\n### Hidden tests\n\ntests/hidden/sort.rs",
+            "author": null,
+            "createdAt": "2026-01-01T03:00:00Z",
             "updatedAt": "2026-01-04T10:00:00Z",
             "labels": { "pageInfo": { "hasNextPage": false }, "nodes": [{ "name": "kai" }] },
             "timelineItems": {
-              "pageInfo": { "hasNextPage": false },
+              "pageInfo": { "hasNextPage": true },
               "nodes": [
                 { "createdAt": "2026-01-04T09:00:00Z", "actor": { "login": "example-maintainer" }, "label": { "name": "kai" } }
               ]

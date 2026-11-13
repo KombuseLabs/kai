@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Reads a board's issues from GitHub into kai's tickets, one way"
+description = "Reads a board's issues from GitHub as GitHub said them, one way"
 
 [dependencies]
 # The HTTP client's TLS setup and the rule for plain HTTP (helpers::http).

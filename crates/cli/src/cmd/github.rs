@@ -20,7 +20,7 @@ pub(crate) enum GithubCommand {
         #[arg(long, env = "KAI_GITHUB_BOARD", value_name = "OWNER/NAME")]
         board: Option<RepoName>,
 
-        /// Fetch every issue, not only those changed since the last sync
+        /// Fetch every issue, not only those changed since the last sync, and remove those GitHub no longer returns
         #[arg(long)]
         full: bool,
     },
@@ -56,19 +56,25 @@ fn sync(context: &Context<'_>, board: &RepoName, api: &str, full: bool) -> Resul
         .runtime
         .block_on(client.fetch_board(board, since.as_deref()))
         .with_context(|| format!("cannot fetch the issues of {board}"))?;
-    store
-        .record_sync(board, &fetched.tickets, fetched.since.as_deref())
+    let removed = store
+        .record_sync(board, &fetched.issues, fetched.since.as_deref(), full)
         .context("cannot write the store")?;
-    tracing::info!(%board, fetched = fetched.tickets.len(), since = ?since, "synced");
+    tracing::info!(%board, fetched = fetched.issues.len(), removed, since = ?since, "synced");
     let kept = store
-        .tickets()
+        .boards()
         .context("cannot read the store")?
         .iter()
-        .filter(|ticket| &ticket.issue.repo == board)
-        .count();
+        .find(|synced| &synced.board == board)
+        .map_or(0, |synced| synced.issues);
+    // Only a full sync can tell what GitHub no longer has.
+    let removed = if full {
+        format!(", {removed} removed that GitHub no longer returns")
+    } else {
+        String::new()
+    };
     println!(
-        "{board}: {} issues fetched, {kept} kept in {}",
-        fetched.tickets.len(),
+        "{board}: {} issues fetched{removed}, {kept} kept in {}",
+        fetched.issues.len(),
         store_path.display()
     );
     Ok(())

@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "The store: a SQLite file of the tickets kai fetched"
+description = "The store: a SQLite mirror of the issues kai fetched from GitHub"
 
 [dependencies]
 # SQLite, synchronous. `bundled` compiles SQLite into kai, so that no

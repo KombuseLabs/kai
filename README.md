@@ -19,6 +19,7 @@ cargo run -- --log-level debug      # log lines on standard error
 cargo run -- github sync --board <owner/name>   # a board's issues into the store
 cargo run -- ticket list            # the tickets in the store
 cargo run -- ticket qualify         # whether kai may use each, and why not
+cargo run -- store status           # per board: issues kept, when last synced, when last in full
 cargo run -- store reset            # empties the store; the next sync fetches everything
 cargo run -- vm doctor              # what running a microVM needs here, and what fixes each gap
 cargo run -- vm fetch               # the pinned Firecracker and guest kernel into kai's cache
@@ -202,9 +203,17 @@ A ticket is an issue on a board repository, made with an issue form whose
 fields are Instruction, Repo, Ref (a full commit sha), Check and Hidden
 tests, and labelled `kai`. `kai github sync` reads the board's issues
 changed since the last sync into the store, `.kai/store.sqlite` beside
-`kai.toml` (`--store` names another). It never writes to GitHub. The token
-is `KAI_GITHUB_TOKEN`, else what `gh auth token` prints; a read-only token
-is enough.
+`kai.toml` (`--store` names another); `--full` reads all of them and
+removes those GitHub no longer returns. It never writes to GitHub. The
+token is `KAI_GITHUB_TOKEN`, else what `gh auth token` prints; a read-only
+token is enough.
+
+The store keeps the issues as GitHub said them, body and all, and kai
+reads each body as the form when it uses the ticket, so a change to how
+the form is read needs no sync. A store kai makes, and the directory it
+makes for it, are readable by their owner only: they hold the issues'
+text. A sync fetches at most 100 labels and 100 labeled events of an
+issue, and the store records whether that was all of them.
 
 `kai ticket qualify` judges each ticket from what GitHub said: refused when
 a rule fails (no `kai` label, a closed issue, not the form, an empty
