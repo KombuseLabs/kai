@@ -22,6 +22,7 @@ cargo run -- vm image build rust    # the image of kai's Rust recipe, with Docke
 cargo run -- vm image list          # the recipes, and which images are built
 cargo run -- vm run --image rust -- cargo --version   # one command in a fresh microVM
 cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched and built in microVMs
+cargo run -- agent fetch            # the pinned Claude Code as a read-only layer for a microVM
 ```
 
 ### Tickets
@@ -96,7 +97,9 @@ path>=<path>` puts a file under `/job`, beside the tree. `--upper-out
 <file>` keeps what the command wrote outside its tree as a layer, when it
 exits with 0; `--layer <file>` lays such a layer over the image of a later
 run, read-only, deletions included. `--user <uid>:<gid>` runs the command
-as another user, `--disk` sizes the job drive.
+as another user, who owns the tree and a home, `/job/home`, and nothing
+else: `job.json` and the files of `--file` are then root's, readable as
+their modes allow; `--disk` sizes the job drive.
 
 The guest's only ways out are the ones a run names. `--port
 <n>=unix:<path>` or `<n>=tcp:<host>:<port>` lets the command reach a socket
@@ -119,6 +122,18 @@ and a second call takes both from the cache. A run on the two layers works
 in `/src`, offline, with the dependencies built:
 `kai vm run --image rust --layer <fetch> --layer <build> --cwd /src -- cargo test`.
 A refused ticket is not fetched.
+
+`kai agent fetch` downloads Claude Code 2.1.322 for Linux from Anthropic's
+release bucket, checks it against the SHA-256 pinned in
+[crates/agent/src/lib.rs](crates/agent/src/lib.rs), and packs it with
+squashfs-tools as a layer that holds `/opt/kai/agents/claude/2.1.322/claude`
+and nothing else, every file root's. It prints the layer's path, under
+`agents/` in the cache; a second call checks the layer afresh and makes
+nothing. A layer that does not check out is moved aside and made again
+from the checked download, and what a stopped fetch left is removed. A
+run takes the layer with `--layer`:
+`kai vm run --image rust --layer <layer> -- /opt/kai/agents/claude/2.1.322/claude --version`.
+No agent works on a task yet, and nothing in kai calls a model.
 
 Limits today:
 
@@ -152,6 +167,8 @@ built without its init, and `kai vm doctor` says so.
 
 - A ticket's check, its hidden tests, run in a microVM on the layers
   `kai ticket deps` makes.
+- An agent at work in a microVM: Claude Code on a tree, through a model
+  route on this machine, and the record of what it did.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 

@@ -37,6 +37,10 @@ pub const STATUS_FORMAT: u32 = 1;
 pub const JOB_FILE: &str = "job.json";
 /// The work tree, relative to the job drive's root.
 pub const TREE_DIR: &str = "tree";
+/// The home of a command that does not run as root, relative to the job
+/// drive's root: the init makes it, mode 0700, and gives it, with the
+/// tree, to the command's user.
+pub const HOME_DIR: &str = "home";
 /// The command's output and the status, relative to the job drive's root.
 pub const OUT_DIR: &str = "out";
 /// Standard output, relative to [`OUT_DIR`].

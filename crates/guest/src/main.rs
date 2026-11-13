@@ -13,9 +13,11 @@
 //! 4. with ports, brings `lo` up and, for each, listens on
 //!    `127.0.0.1:<port>` and passes every connection on to vsock, the host,
 //!    the same port;
-//! 5. starts the command in a process group of its own, changed into
-//!    `/root` and the job's directory, as the job's user, with the job's
-//!    environment, standard input closed and its output going to
+//! 5. for a user that is not root, makes the rest of the job drive root's
+//!    and gives the user the tree and a home, `/job/home`, made when
+//!    missing; then starts the command in a process group of its own,
+//!    changed into `/root` and the job's directory, as the job's user, with
+//!    the job's environment, standard input closed and its output going to
 //!    `/job/out`;
 //! 6. reaps every process that ends and waits for the command; at the time
 //!    limit it kills the command's process group;
@@ -43,8 +45,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use guest::{
-    Ending, JOB_FILE, JOB_FORMAT, Job, OUT_DIR, STATUS_FILE, STATUS_FORMAT, STDERR_FILE,
-    STDOUT_FILE, Status,
+    Ending, HOME_DIR, JOB_FILE, JOB_FORMAT, Job, OUT_DIR, STATUS_FILE, STATUS_FORMAT, STDERR_FILE,
+    STDOUT_FILE, Status, TREE_DIR,
 };
 
 /// Where the image is mounted.
@@ -176,6 +178,18 @@ fn run() -> Result<(), String> {
         }
     }
 
+    if job.uid != 0 {
+        // The overlay's own directories on the job drive are the kernel's
+        // while it is mounted, and root's already: the init made them.
+        let overlay: &[&str] = if job.upper_out {
+            &[]
+        } else {
+            &["upper", "work"]
+        };
+        keep_for_root(overlay)
+            .and_then(|()| give_to_user(job.uid, job.gid))
+            .map_err(|err| format!("prepare the job drive for {}:{}: {err}", job.uid, job.gid))?;
+    }
     let ending = command(&job)?;
     let status = Status {
         format: STATUS_FORMAT,
@@ -183,6 +197,123 @@ fn run() -> Result<(), String> {
         command_ms: ending.1,
     };
     write_status(&status).map_err(|err| format!("write {OUT_DIR}/{STATUS_FILE}: {err}"))
+}
+
+/// Calls `each` for `top` and every name below it, never following a link
+/// and never entering a directory of another file system than the job
+/// drive's.
+fn walk(
+    top: &str,
+    mut each: impl FnMut(&std::path::Path, &fs::Metadata) -> Result<(), String>,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let drive = fs::metadata(DRIVE)
+        .map_err(|err| format!("read {DRIVE}: {err}"))?
+        .dev();
+    let mut todo = vec![std::path::PathBuf::from(top)];
+    while let Some(path) = todo.pop() {
+        let meta =
+            fs::symlink_metadata(&path).map_err(|err| format!("read {}: {err}", path.display()))?;
+        if meta.dev() != drive {
+            continue;
+        }
+        each(&path, &meta)?;
+        if meta.is_dir() {
+            for entry in
+                fs::read_dir(&path).map_err(|err| format!("read {}: {err}", path.display()))?
+            {
+                todo.push(
+                    entry
+                        .map_err(|err| format!("read {}: {err}", path.display()))?
+                        .path(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Step 5, for a job whose user is not root, first: the job drive and
+/// everything on it but the tree, the home and the names in `skip` become
+/// root's, and nobody but root may write them. The drive keeps the uids of
+/// the host's files it was made from, so without this `job.json` and the
+/// files given with `--file` would be the user's whenever the host's user
+/// has the job's uid. A link is changed itself, never what it points to,
+/// and keeps its mode.
+fn keep_for_root(skip: &[&str]) -> Result<(), String> {
+    let mut tops = vec![DRIVE.to_owned()];
+    for entry in fs::read_dir(DRIVE).map_err(|err| format!("read {DRIVE}: {err}"))? {
+        let name = entry
+            .map_err(|err| format!("read {DRIVE}: {err}"))?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if name != TREE_DIR && name != HOME_DIR && !skip.contains(&name.as_str()) {
+            tops.push(format!("{DRIVE}/{name}"));
+        }
+    }
+    let (first, rest) = tops.split_first().expect("the drive is the first");
+    // The drive's own root, not what is below it: that is the rest.
+    let root = fs::symlink_metadata(first).map_err(|err| format!("read {first}: {err}"))?;
+    root_only(std::path::Path::new(first), &root)?;
+    for top in rest {
+        walk(top, root_only)?;
+    }
+    Ok(())
+}
+
+/// Makes `path` root's with the mode [`root_mode`] makes of its own; a
+/// link keeps its mode, since a mode set on a link is set on what it points
+/// to.
+fn root_only(path: &std::path::Path, meta: &fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    std::os::unix::fs::lchown(path, Some(0), Some(0))
+        .map_err(|err| format!("lchown {}: {err}", path.display()))?;
+    if !meta.file_type().is_symlink() {
+        let mode = root_mode(meta.permissions().mode());
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            .map_err(|err| format!("chmod {}: {err}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// The mode of a file or directory that has become root's, from the mode it
+/// came with: the owner's bits, group's and others' read and execute, and a
+/// directory's sticky bit stay; setuid and setgid go, so that nothing the
+/// host brought runs as root, and group's and others' write go. `mode` was
+/// read before the `lchown` that made it root's, and still holds the bits
+/// that `lchown` cleared.
+fn root_mode(mode: u32) -> u32 {
+    mode & 0o1755
+}
+
+/// Step 5, for a job whose user is not root, then: makes the home, mode
+/// 0700, when it is missing, and gives every name under the home and the
+/// tree to `uid` and `gid`. `lchown` changes a link and never what it
+/// points to. Nothing of the tree has run yet: the command starts after.
+fn give_to_user(uid: u32, gid: u32) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let home = format!("{DRIVE}/{HOME_DIR}");
+    match fs::symlink_metadata(&home) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(&home).map_err(|err| format!("mkdir {home}: {err}"))?;
+        }
+        Err(err) => return Err(format!("read {home}: {err}")),
+        Ok(meta) if !meta.is_dir() => return Err(format!("{home} is not a directory")),
+        Ok(_) => {}
+    }
+    fs::set_permissions(&home, fs::Permissions::from_mode(0o700))
+        .map_err(|err| format!("chmod {home}: {err}"))?;
+    for top in [format!("{DRIVE}/{TREE_DIR}"), home] {
+        walk(&top, |path, _| {
+            std::os::unix::fs::lchown(path, Some(uid), Some(gid))
+                .map_err(|err| format!("lchown {}: {err}", path.display()))
+        })?;
+    }
+    Ok(())
 }
 
 /// Reads and checks `job.json` on the job drive.
@@ -514,5 +645,32 @@ fn check(result: libc::c_int) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::root_mode;
+
+    #[test]
+    fn a_mode_made_roots_keeps_its_ordinary_bits_and_loses_setuid_and_setgid() {
+        for (came, became) in [
+            (0o4755, 0o755),
+            (0o2755, 0o755),
+            (0o6755, 0o755),
+            (0o4644, 0o644),
+            (0o2775, 0o755),
+            (0o755, 0o755),
+            (0o644, 0o644),
+            (0o666, 0o644),
+            (0o777, 0o755),
+            (0o600, 0o600),
+            (0o1777, 0o1755),
+            // The file type's bits, as Metadata gives them, are dropped too.
+            (0o100_4755, 0o755),
+            (0o040_2775, 0o755),
+        ] {
+            assert_eq!(root_mode(came), became, "{came:o}");
+        }
     }
 }

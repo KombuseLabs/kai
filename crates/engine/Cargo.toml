@@ -26,7 +26,7 @@ types = { path = "../types" }
 vm = { path = "../vm" }
 
 [dev-dependencies]
-# Runs the async tests.
+# Runs the asynchronous dependency-layer tests.
 tokio = { version = "1.54.1", features = ["macros", "rt"] }
 
 [lints]

@@ -5,6 +5,7 @@
 //! The crates kai is made of are named with a leading `::`, since some of
 //! these modules share their names (`github`, `store`, `vm`).
 
+mod agent;
 mod github;
 mod store;
 mod ticket;
@@ -31,6 +32,8 @@ pub(crate) enum Command {
     Store(store::StoreCommand),
     /// microVMs: what running one needs, the pinned Firecracker and guest kernel, and one command in a fresh VM
     Vm(vm::VmArgs),
+    /// An agent in a microVM: the pinned Claude Code as a read-only layer
+    Agent(agent::AgentArgs),
 }
 
 /// What every command may need: the global options, resolved against the
@@ -73,5 +76,6 @@ pub(crate) fn run(command: Option<&Command>, context: &Context<'_>) -> Result<()
         Some(Command::Ticket(command)) => ticket::run(command, context),
         Some(Command::Store(command)) => store::run(command, context),
         Some(Command::Vm(args)) => vm::dispatch(args, context),
+        Some(Command::Agent(args)) => agent::dispatch(args, context),
     }
 }

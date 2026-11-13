@@ -1,0 +1,32 @@
+[package]
+name = "agent"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Pinned agent programs and their read-only microVM layers"
+
+[dependencies]
+# Atomic cache publication, locks, hashes, and external packing tools.
+helpers = { path = "../helpers" }
+# Agent layer metadata in the cache.
+serde.workspace = true
+serde_json = "1.0.154"
+# Layer preparation errors, as in the other library crates.
+thiserror = "2.0.21"
+# Packing tools use async processes; blocking file copies leave the runtime thread.
+tokio = { version = "1.54.1", features = ["process", "rt"] }
+tracing.workspace = true
+# Pinned artefacts and verified downloads; no dependency on the engine.
+vm = { path = "../vm" }
+
+[dev-dependencies]
+# Async tests and bounded waits for child-process recovery tests.
+tokio = { version = "1.54.1", features = ["macros", "rt", "time"] }
+# A local server for invented release artefacts; no provider or internet calls.
+wiremock = "0.6.5"
+
+[lints]
+workspace = true

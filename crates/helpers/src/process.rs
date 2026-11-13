@@ -4,6 +4,8 @@
 //!
 //! - [`run`]: a tool run to its end; its standard output, or how it failed
 //!   with its standard error.
+//! - [`run_hashed`]: the same, for output too large to keep: its SHA-256
+//!   and length.
 //! - [`keep_start`]: the start of a stream of a program that runs longer,
 //!   read to its end in a task of its own.
 //! - [`wait_or_kill`]: waits for a child up to a limit, and kills it then.
@@ -83,6 +85,81 @@ pub async fn run(command: &mut Command) -> Result<Vec<u8>, Failed> {
         status: output.status,
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
     })
+}
+
+/// What [`run_hashed`] found in a program's standard output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hashed {
+    /// Its SHA-256, as [`crate::hash`] writes it.
+    pub sha256: String,
+    /// Its length in bytes.
+    pub len: u64,
+}
+
+/// The most of a program's standard error a failure carries.
+const STDERR_KEPT: usize = 64 * 1024;
+
+/// Runs `command` to its end, with no standard input, and hashes its
+/// standard output as it arrives instead of keeping it: for output too
+/// large to hold, such as a file a tool unpacks. Fails as [`run`] does;
+/// output that cannot be read ends the program, and the failure says so.
+pub async fn run_hashed(command: &mut Command) -> Result<Hashed, Failed> {
+    let program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
+    let started = |source| Failed::Start {
+        program: program.clone(),
+        source,
+    };
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(started)?;
+    let (Some(mut stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        let _ = child.kill().await;
+        return Err(started(io::Error::other("its output was not piped")));
+    };
+    let stderr = keep_start(stderr, STDERR_KEPT);
+    let mut hash = crate::hash::Sha256::new();
+    let mut len = 0u64;
+    let mut chunk = vec![0u8; 1 << 16];
+    let unread = loop {
+        match stdout.read(&mut chunk).await {
+            Ok(0) => break None,
+            Ok(n) => {
+                hash.update(&chunk[..n]);
+                len += n as u64;
+            }
+            Err(err) => {
+                // Nobody reads its output any more: it would block on the
+                // full pipe and never end.
+                let _ = child.start_kill();
+                break Some(err);
+            }
+        }
+    };
+    let status = child.wait().await.map_err(started)?;
+    let stderr = stderr.await.unwrap_or_default().text();
+    match unread {
+        Some(err) => Err(Failed::Status {
+            program,
+            status,
+            stderr: format!("its output could not be read: {err}; {stderr}"),
+        }),
+        None if status.success() => Ok(Hashed {
+            sha256: hash.finish(),
+            len,
+        }),
+        None => Err(Failed::Status {
+            program,
+            status,
+            stderr,
+        }),
+    }
 }
 
 /// The start of what a program wrote, as [`keep_start`] keeps it.
@@ -166,6 +243,24 @@ mod tests {
         let mut command = Command::new("cat");
         command.stdin(Stdio::null());
         assert_eq!(run(&mut command).await.unwrap(), b"");
+    }
+
+    #[tokio::test]
+    async fn run_hashed_hashes_more_than_a_pipe_holds_and_fails_as_run_does() {
+        let hashed = run_hashed(Command::new("sh").args(["-c", "head -c 300000 /dev/zero"]))
+            .await
+            .unwrap();
+        assert_eq!(hashed.len, 300_000);
+        assert_eq!(hashed.sha256, crate::hash::sha256_bytes(&[0u8; 300_000]));
+
+        let failed = run_hashed(Command::new("sh").args(["-c", "echo out; echo no >&2; exit 3"]))
+            .await
+            .unwrap_err();
+        assert_eq!(failed.to_string(), "sh exit status: 3: no");
+        let missing = run_hashed(&mut Command::new("kai-no-such-program"))
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, Failed::Start { .. }), "{missing}");
     }
 
     #[tokio::test]

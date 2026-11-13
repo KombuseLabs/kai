@@ -7,7 +7,9 @@ yet. What is: tickets come in from GitHub issues (`kai github sync`) into
 a local SQLite store, and `kai ticket qualify` says from what GitHub said
 whether kai may use each one. `kai vm run` runs one command in a fresh
 Firecracker microVM, and `kai ticket deps` fetches and builds a ticket's
-repository and dependencies in microVMs. No ticket's check is run yet.
+repository and dependencies in microVMs. `kai agent fetch` packs a pinned
+Claude Code as a read-only layer for a microVM. No ticket's check is run
+yet, and no agent works on a task yet.
 
 ## Where things are
 
@@ -15,13 +17,14 @@ repository and dependencies in microVMs. No ticket's check is run yet.
 | --- | --- |
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai`. `main.rs` starts up, `settings.rs` reads `kai.toml`, `src/cmd/` has a module per command group |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
-| `crates/engine/` | what kai does, as a library: the static qualify rules, and `deps`, a ticket's repository and dependencies fetched and built in microVMs as two layers; never depends on `cli` |
+| `crates/engine/` | what kai does, as a library: the static qualify rules; `deps`, a ticket's repository and dependencies fetched and built in microVMs as two layers; never depends on `cli` |
+| `crates/agent/` | pinned agent programs (currently Claude Code) and their read-only VM layers; `layer` checks, publishes and recovers the cache; depends on `vm` and `helpers`, never on `engine` or `cli` |
 | `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |
 | `crates/vm/` | microVMs on Firecracker: one command in a fresh VM (`kai vm run`; a tree, layers, ports, a way out through `proxy`'s egress), images from the recipes in `images/` (`kai vm image`), the pinned Firecracker and guest kernel (`kai vm fetch`), what a run needs (`kai vm doctor`); `src/run.rs` is a run step by step, `src/run/` its parts; the build script builds `guest` for musl and puts the init into kai |
 | `crates/guest/` | kai's init, PID 1 of every VM (`kai-init`, static, musl), and `job.json` and `status.json`, which it shares with `vm`; the example `probe` is the VM tests' program |
-| `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`; `config`, which finds and reads settings files; `http`, where every HTTP client starts; `process`, how a program is run, waited for and its output kept; `fs`, files put in place whole; `hash`, SHA-256 |
+| `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`; `config`, which finds and reads settings files; `http`, where every HTTP client starts; `process`, how a program is run, waited for and its output kept or hashed; `fs`, files and directories put in place whole, what a killed process left of them removed, a lock among processes, a directory flushed; `hash`, SHA-256 |
 | `images/` | the recipes of kai's VM images, one Dockerfile each, compiled into kai; their rules are in `crates/vm/src/image.rs` |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |

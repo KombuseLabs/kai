@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use guest::{JOB_FILE, JOB_FORMAT, Job, TREE_DIR};
+use helpers::fs::PartDir;
 use helpers::process::{self, Failed};
 use tokio::process::Command;
 
@@ -144,28 +145,29 @@ pub(super) async fn mke2fs(
 /// request at spaces, so no host path goes into it: `rdump` writes into
 /// its working directory, and the drive is an argument of its own.
 pub(super) async fn tree_out(dir: &Path, target: &Path) -> Result<(), String> {
-    let part = target.with_file_name(format!(
-        ".{}.{}.part",
-        target
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "tree".to_owned()),
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&part);
-    std::fs::create_dir_all(&part).map_err(|err| format!("make {}: {err}", part.display()))?;
+    if let Some(parent) = target
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("make {}: {err}", parent.display()))?;
+    }
+    // Removed when it goes out of scope, also when the run is dropped
+    // while debugfs runs.
+    let part = PartDir::beside(target)
+        .map_err(|err| format!("make a directory beside {}: {err}", target.display()))?;
     // Not process::run: debugfs ends with 0 when `rdump` fails, and says
     // why only on standard error, which run keeps only on a failure.
     let output = Command::new("debugfs")
         .arg("-R")
         .arg(format!("rdump /{TREE_DIR} ."))
         .arg(absolute(&dir.join("job.ext4"))?)
-        .current_dir(&part)
+        .current_dir(part.path())
         .stdin(Stdio::null())
         .output()
         .await
         .map_err(|err| format!("cannot run debugfs: {err}"))?;
-    let dumped = part.join(TREE_DIR);
+    let dumped = part.path().join(TREE_DIR);
     let renamed = if output.status.success() && dumped.is_dir() {
         std::fs::rename(&dumped, target)
             .map_err(|err| format!("rename to {}: {err}", target.display()))
@@ -175,7 +177,7 @@ pub(super) async fn tree_out(dir: &Path, target: &Path) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     };
-    let _ = std::fs::remove_dir_all(&part);
+    drop(part);
     renamed
 }
 

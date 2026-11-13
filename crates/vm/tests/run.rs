@@ -470,6 +470,293 @@ async fn the_command_runs_as_the_user_it_is_given() {
 
 #[tokio::test]
 #[ignore = "needs /dev/kvm and the artefacts of `kai vm fetch`"]
+async fn a_user_that_is_not_root_gets_its_tree_and_a_home_and_nothing_else() {
+    use std::os::unix::fs::symlink;
+
+    let dir = dir("user-owns");
+    let image = image(&dir);
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("sub")).unwrap();
+    std::fs::write(tree.join("a"), "a").unwrap();
+    std::fs::write(tree.join("sub/b"), "b").unwrap();
+    // A link out of the tree, to a file of the image: the link is given to
+    // the user, what it points to is not.
+    symlink("/etc/motd", tree.join("link")).unwrap();
+    let steps = [
+        "write /job/tree/new n ; write /job/tree/sub/c c ; write /job/home/h h",
+        "owner /job/tree ; owner /job/tree/a ; owner /job/tree/sub/b ; owner /job/tree/link",
+        "owner /etc/motd ; owner /job/home ; owner /job/out ; id",
+    ]
+    .join(" ; ");
+    let mut argv = vec!["/probe", "do"];
+    argv.extend(steps.split(' '));
+    // Not this machine's user: the ids the job drive was made with do not
+    // matter.
+    let mut spec = spec(&image, dir.join("run"), &argv);
+    spec.uid = 4321;
+    spec.gid = 4322;
+    spec.tree = Some(tree);
+    spec.disk_mib = Some(128);
+    let result = vm::run(&launch().await, &spec).await.unwrap();
+    assert_eq!(
+        result.exit_code,
+        Some(0),
+        "{result:?} {}",
+        read(dir.join("run/out/stderr"))
+    );
+    let stdout = read(dir.join("run/out/stdout"));
+    // Owners, and the home's mode; the other modes are the host's umask.
+    let owners: Vec<&str> = stdout
+        .lines()
+        .map(|line| line.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        owners,
+        [
+            "4321:4322", // the tree
+            "4321:4322", // a file of the tree
+            "4321:4322", // a file in a directory of the tree
+            "4321:4322", // the link
+            "0:0",       // what the link points to
+            "4321:4322", // the home
+            "0:0",       // out/
+            "4321:4322", // the command's ids
+        ],
+        "{stdout}"
+    );
+    assert_eq!(stdout.lines().nth(5), Some("4321:4322 700"), "{stdout}");
+
+    // The image stays root's.
+    let mut image_spec = self::spec(
+        &image,
+        dir.join("run-image"),
+        &["/probe", "do", "write", "/data/c", "c"],
+    );
+    image_spec.uid = 4321;
+    image_spec.gid = 4322;
+    let result = vm::run(&launch().await, &image_spec).await.unwrap();
+    assert_eq!(result.exit_code, Some(1), "{result:?}");
+    assert!(
+        read(dir.join("run-image/out/stderr")).contains("ermission denied"),
+        "{}",
+        read(dir.join("run-image/out/stderr"))
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs /dev/kvm and the artefacts of `kai vm fetch`"]
+async fn what_becomes_roots_loses_setuid_and_setgid_and_keeps_its_other_bits() {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let dir = dir("setid");
+    let image = image(&dir);
+    // The host's own ids, as in the test below: then the job drive's files
+    // are the command's user's until the init makes them root's.
+    let host = std::fs::metadata(&dir).unwrap();
+    let (uid, gid) = match (host.uid(), host.gid()) {
+        (0, _) => (1000, 1000),
+        ids => ids,
+    };
+    let mode = |path: &Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    // Harmless files with the bits set; nothing here is run.
+    let given = dir.join("given");
+    std::fs::create_dir(&given).unwrap();
+    let files = [
+        ("setuid", 0o4755),
+        ("setgid", 0o2755),
+        ("both", 0o6755),
+        ("setuid-not-executable", 0o4644),
+        ("executable", 0o755),
+        ("plain", 0o644),
+        ("writable", 0o666),
+    ];
+    for (name, bits) in files {
+        let file = given.join(name);
+        std::fs::write(&file, name).unwrap();
+        mode(&file, bits);
+    }
+    std::fs::create_dir(given.join("setgid-dir")).unwrap();
+    mode(&given.join("setgid-dir"), 0o2775);
+    mode(&given, 0o755);
+    let tree = dir.join("tree");
+    std::fs::create_dir(&tree).unwrap();
+    for (name, bits) in [("setuid", 0o4755), ("executable", 0o755)] {
+        std::fs::write(tree.join(name), name).unwrap();
+        mode(&tree.join(name), bits);
+    }
+    // The host kept the bits: what the guest gets comes from these.
+    assert_eq!(
+        std::fs::metadata(given.join("both")).unwrap().mode() & 0o7777,
+        0o6755
+    );
+
+    let mut steps: Vec<String> = files
+        .iter()
+        .map(|(name, _)| format!("owner /job/given/{name}"))
+        .collect();
+    steps.extend(
+        [
+            "owner /job/given/setgid-dir",
+            "owner /job/given",
+            "owner /job/tree/setuid",
+            "owner /job/tree/executable",
+            "can-write /job/job.json",
+            "can-write /job/tree/executable",
+            "can-create /job/home",
+        ]
+        .map(str::to_owned),
+    );
+    let steps = steps.join(" ; ");
+    let mut argv = vec!["/probe", "do"];
+    argv.extend(steps.split(' '));
+    let mut spec = spec(&image, dir.join("run"), &argv);
+    spec.uid = uid;
+    spec.gid = gid;
+    spec.tree = Some(tree);
+    spec.files = vec![JobFile {
+        from: given,
+        to: "given".to_owned(),
+    }];
+    spec.disk_mib = Some(128);
+    let result = vm::run(&launch().await, &spec).await.unwrap();
+    let stdout = read(dir.join("run/out/stdout"));
+    assert_eq!(
+        result.exit_code,
+        Some(0),
+        "{result:?} {stdout} {}",
+        read(dir.join("run/out/stderr"))
+    );
+    let lines: Vec<&str> = stdout.lines().collect();
+    let user = format!("{uid}:{gid}");
+    assert_eq!(
+        lines,
+        [
+            "0:0 755",              // setuid: the bit gone, the rest kept
+            "0:0 755",              // setgid
+            "0:0 755",              // both
+            "0:0 644",              // setuid on a file that is not executable
+            "0:0 755",              // an ordinary executable stays executable
+            "0:0 644",              // a plain file stays readable
+            "0:0 644",              // group's and others' write gone
+            "0:0 755",              // a setgid directory
+            "0:0 755",              // the given directory
+            lines[9],               // the tree's setuid file: checked below
+            &format!("{user} 755"), // the tree's executable, the user's
+            "no /job/job.json",
+            "yes /job/tree/executable",
+            "yes /job/home",
+        ],
+        "{stdout}"
+    );
+    // The tree is the user's: whatever its bits, none of it is root's.
+    let (owner, bits) = lines[9].split_once(' ').unwrap();
+    assert_eq!(owner, user, "{stdout}");
+    assert_eq!(u32::from_str_radix(bits, 8).unwrap() & 0o777, 0o755);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs /dev/kvm and the artefacts of `kai vm fetch`"]
+async fn a_user_with_the_hosts_own_uid_can_write_its_tree_and_home_and_nothing_else() {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let dir = dir("host-uid");
+    let image = image(&dir);
+    // The job drive keeps the uids of the files it is made from, the
+    // host user's; the command runs as that same user, as the agent of an
+    // agent run does on a host whose user is 1000. Root on the host stages
+    // root's files, so the case is then 1000.
+    let host = std::fs::metadata(&dir).unwrap();
+    let (uid, gid) = match (host.uid(), host.gid()) {
+        (0, _) => (1000, 1000),
+        ids => ids,
+    };
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("sub")).unwrap();
+    std::fs::write(tree.join("a"), "a").unwrap();
+    // Given files, writable by everyone on the host.
+    let given = dir.join("given");
+    std::fs::write(&given, "given").unwrap();
+    let given_dir = dir.join("given-dir");
+    std::fs::create_dir(&given_dir).unwrap();
+    std::fs::write(given_dir.join("inner"), "inner").unwrap();
+    for path in [&given, &given_dir.join("inner")] {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o666)).unwrap();
+    }
+    std::fs::set_permissions(&given_dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+    let steps = [
+        "can-write /job/tree/a ; can-create /job/tree ; can-create /job/tree/sub",
+        "can-create /job/home ; can-write /job/job.json ; can-write /job/given",
+        "can-write /job/given-dir/inner ; can-create /job ; can-create /job/given-dir",
+        "can-create /job/out ; cat /job/given ; owner /job/job.json ; owner /job/given",
+        "owner /job/given-dir/inner ; id",
+    ]
+    .join(" ; ");
+    let mut argv = vec!["/probe", "do"];
+    argv.extend(steps.split(' '));
+    let mut spec = spec(&image, dir.join("run"), &argv);
+    spec.uid = uid;
+    spec.gid = gid;
+    spec.tree = Some(tree);
+    spec.files = vec![
+        JobFile {
+            from: given,
+            to: "given".to_owned(),
+        },
+        JobFile {
+            from: given_dir,
+            to: "given-dir".to_owned(),
+        },
+    ];
+    spec.disk_mib = Some(128);
+    let result = vm::run(&launch().await, &spec).await.unwrap();
+    let stdout = read(dir.join("run/out/stdout"));
+    assert_eq!(
+        result.exit_code,
+        Some(0),
+        "{result:?} {stdout} {}",
+        read(dir.join("run/out/stderr"))
+    );
+    let lines: Vec<&str> = stdout.lines().collect();
+    // What the command can do, tried, not read from the owners.
+    assert_eq!(
+        lines[..10],
+        [
+            "yes /job/tree/a",
+            "yes /job/tree",
+            "yes /job/tree/sub",
+            "yes /job/home",
+            "no /job/job.json",
+            "no /job/given",
+            "no /job/given-dir/inner",
+            "no /job",
+            "no /job/given-dir",
+            "no /job/out",
+        ],
+        "{stdout}"
+    );
+    // What it was given it can still read.
+    assert_eq!(lines[10], "given", "{stdout}");
+    for (line, what) in lines[11..14].iter().zip(["job.json", "given", "inner"]) {
+        let (owner, mode) = line.split_once(' ').unwrap();
+        assert_eq!(owner, "0:0", "{what}: {stdout}");
+        let mode = u32::from_str_radix(mode, 8).unwrap();
+        assert_eq!(
+            mode & 0o022,
+            0,
+            "{what} is writable by group or others: {stdout}"
+        );
+    }
+    assert_eq!(lines[14], format!("{uid}:{gid}"), "{stdout}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs /dev/kvm and the artefacts of `kai vm fetch`"]
 async fn eight_runs_at_once_on_one_layer() {
     let dir = dir("eight-layer");
     let image = image(&dir);

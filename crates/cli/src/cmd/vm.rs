@@ -105,7 +105,7 @@ struct RunArgs {
     #[arg(long, value_name = "MIB")]
     disk: Option<u64>,
 
-    /// The user the command runs as in the guest, as UID:GID; without it, root
+    /// The user the command runs as in the guest, as UID:GID, who then owns the tree and a home, /job/home; without it, root
     #[arg(long, value_name = "UID:GID", value_parser = parse_user)]
     user: Option<(u32, u32)>,
 

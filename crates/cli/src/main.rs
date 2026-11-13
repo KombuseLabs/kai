@@ -12,6 +12,8 @@
 //!   what fixes each gap; `kai vm fetch` downloads the pinned Firecracker
 //!   and guest kernel into kai's cache and checks them; `kai vm run` runs
 //!   one command in a fresh microVM on an image file.
+//! - `kai agent fetch` downloads the pinned Claude Code, checks it and
+//!   packs it as a read-only layer for a microVM, in the same cache.
 //!
 //! Results go to standard output, log lines never do: they go to standard
 //! error, at the level `--log-level` names, and with `--log-file` also to a

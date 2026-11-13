@@ -9,7 +9,13 @@
 //!   step is `write <path> <text>`, `remove <path>` (a file or a whole
 //!   directory), `cat <path>` (its text, or `missing <path>`), `ls <dir>`
 //!   (the names in it, sorted, one line), `reset-dir <dir>` (emptied, then
-//!   holding `new`), `id` (the user and group ids, as `uid:gid`) or
+//!   holding `new`), `id` (the user and group ids, as `uid:gid`), `owner
+//!   <path>` (the owner of the path itself, a link not followed, and its
+//!   mode, as `uid:gid <octal>`), `can-write <file>` (whether the file
+//!   opens for writing, as `yes <file>` or `no <file>`; nothing is
+//!   written), `can-create <dir>` (whether a new name can be made in the
+//!   directory, which also decides whether one can be removed or replaced
+//!   there; what is made is removed) or
 //!   `connect <port> <text>` (sends the text, `\r\n` taken as a line end, to
 //!   `127.0.0.1:<port>` and prints the first line of the answer, or
 //!   `cannot connect`).
@@ -99,6 +105,29 @@ fn run(step: &[&str]) -> std::io::Result<()> {
                     .to_owned()
             };
             println!("{}:{}", field("Uid:"), field("Gid:"));
+            Ok(())
+        }
+        ["owner", path] => {
+            use std::os::unix::fs::MetadataExt as _;
+            let meta = std::fs::symlink_metadata(path)?;
+            println!("{}:{} {:o}", meta.uid(), meta.gid(), meta.mode() & 0o7777);
+            Ok(())
+        }
+        ["can-write", path] => {
+            let opened = std::fs::OpenOptions::new().write(true).open(path);
+            println!("{} {path}", if opened.is_ok() { "yes" } else { "no" });
+            Ok(())
+        }
+        ["can-create", dir] => {
+            let probe = format!("{dir}/.probe-can-create");
+            let made = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&probe);
+            if made.is_ok() {
+                std::fs::remove_file(&probe)?;
+            }
+            println!("{} {dir}", if made.is_ok() { "yes" } else { "no" });
             Ok(())
         }
         ["connect", port, text] => {

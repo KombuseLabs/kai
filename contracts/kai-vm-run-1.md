@@ -14,7 +14,7 @@ The run directory beside it:
 | `console.log` | the VM's serial console: Firecracker's first line, the kernel's errors, the init's line when it failed; carriage returns removed |
 | `firecracker.log` | Firecracker's own log, warnings and worse |
 | `vm.json` | what Firecracker was started with |
-| `job.ext4` | the job drive after the run: `job.json`, `tree/`, the files given with `--file`, `out/` |
+| `job.ext4` | the job drive after the run: `job.json`, `tree/`, the files given with `--file`, `out/`, and `home/` for a command that did not run as root |
 | `proxy.jsonl` | with `--proxy`: fence's ledger, one line per connection, host and port, never what was sent |
 
 ## Fields
@@ -61,5 +61,15 @@ A failure of the infrastructure is never a result of the command.
 - The command ran as root in the guest unless the run says otherwise.
   Root in the guest can change anything on the job drive, `out/` included:
   `out/` is what the command left there, not more.
+- A command given another user (`--user`) owns `/job/tree`, everything in
+  it, and `/job/home`, mode 0700, which kai's init makes when it is missing.
+  Everything else on the job drive (its root, `job.json`, the files given
+  with `--file`, `out/`) the init makes root's and takes group's and
+  others' write, setuid and setgid away, whatever uids and modes the drive
+  was made with, so that nothing given runs as root: the command reads
+  what their modes let others read and writes none of it, and cannot
+  make, remove or replace a name in `/job`. The init does both before the
+  command starts, never following a link. The image and the layers are
+  read-only.
 - `out/` holds plain files only; kai reads them back by fixed names, never by
   names the guest chose.

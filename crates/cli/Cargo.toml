@@ -17,6 +17,8 @@ name = "kai"
 path = "src/main.rs"
 
 [dependencies]
+# Agent pins and layer preparation for `kai agent fetch`.
+agent = { path = "../agent" }
 # One error type for main, with the context of what kai was doing (the
 # owner's choice for `cli`, taken at its first use).
 anyhow = "1.0.104"

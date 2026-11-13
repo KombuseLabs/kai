@@ -3,7 +3,8 @@
 //! the lines go. For now it knows the greeting, [`qualify`]: whether a
 //! ticket may be used, judged from what GitHub says about it, and
 //! [`deps`]: a ticket's repository and its dependencies, fetched and built
-//! in microVMs into two layers.
+//! in microVMs into two layers. Agent programs and their layers belong to
+//! the separate `agent` crate.
 
 pub mod deps;
 pub mod qualify;
