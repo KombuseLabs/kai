@@ -25,9 +25,45 @@ cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched 
 cargo run -- agent fetch            # the pinned Claude/SDK/Node runtime for a microVM
 cargo run -- agent fetch --addon ponytail   # Ponytail's skill, pinned, as a read-only layer
 cargo run -- agent compare --model <id> --extra-prompt "Use one HTML file." --output ./comparison -- "Build an HTML calculator."
+cargo run -- run ponytail           # the named pair in .runs/ponytail.json
 ```
 
 ### One task, with and without an extra prompt
+
+Save a comparison as a JSON file and run it by name:
+
+```sh
+kai run ponytail
+```
+
+The included [.runs/ponytail.json](.runs/ponytail.json) compares the same
+HTML-calculator task on Sonnet 5.5, once plain and once with the pinned
+Ponytail add-on activated by `/ponytail full`. Both run in parallel. The
+runtime, image and add-on must already be prepared (`kai agent fetch`,
+`kai vm image build rust`, `kai agent fetch --addon ponytail`), and the
+external proxy route is supplied as for `agent run`.
+
+The lookup directory is configurable in `kai.toml`:
+
+```toml
+[runs]
+directory = ".runs"
+```
+
+It is relative to that config file, so `kai run ponytail` also works from
+a directory below it. Without a setting, `.runs` is the default. The name
+has no `.json` suffix and may contain letters, digits, `-` and `_`.
+
+A run file requires `model`, `prompt`, and exactly one of `extra_prompt`
+or `extra_prompt_file`. Optional fields are `tree`, `max_turns`,
+`sequential` (default false) and `addon`. File paths are relative to the
+JSON file. With `addon`, the extra prompt is its activation slash command;
+only the second VM mounts that add-on. Unknown fields are errors.
+Each invocation writes a new result directory in the VM cache; `--output
+DIR` chooses one explicitly. `--cache DIR` overrides the VM cache and
+`--mock` selects an explicitly supplied local fake API.
+
+For an ad-hoc comparison, pass the same inputs directly:
 
 `kai agent compare` runs the same task twice: once as given, once with
 the extra instructions before it. Both runs use the same model and

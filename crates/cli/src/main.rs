@@ -18,6 +18,7 @@
 //!   packs it as a read-only layer for a microVM, in the same cache.
 //! - `kai agent compare` runs one task with and without extra instructions,
 //!   in parallel by default, and keeps both result trees and answers.
+//! - `kai run <name>` reads those inputs from a JSON file in `runs.directory`.
 //!
 //! Results go to standard output, log lines never do: they go to standard
 //! error, at the level `--log-level` names, and with `--log-file` also to a

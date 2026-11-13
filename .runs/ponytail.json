@@ -1,0 +1,8 @@
+{
+  "model": "claude-sonnet-5-5",
+  "prompt": "Build an HTML calculator in index.html with embedded CSS and JavaScript.",
+  "extra_prompt": "/ponytail full",
+  "addon": "ponytail",
+  "max_turns": 40,
+  "sequential": false
+}

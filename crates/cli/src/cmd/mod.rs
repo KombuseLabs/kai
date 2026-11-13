@@ -22,6 +22,8 @@ use crate::settings::Config;
 /// kai's command groups.
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Run a named comparison from the configured runs directory
+    Run(agent::NamedRunArgs),
     /// Reads tickets from GitHub
     #[command(subcommand)]
     Github(github::GithubCommand),
@@ -72,6 +74,7 @@ impl From<anyhow::Error> for Failure {
 /// Runs `command`; without one, kai greets.
 pub(crate) fn run(command: Option<&Command>, context: &Context<'_>) -> Result<(), Failure> {
     match command {
+        Some(Command::Run(args)) => agent::run_named(args, context),
         None => {
             println!("{}", ::engine::greeting());
             Ok(())

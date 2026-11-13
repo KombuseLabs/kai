@@ -5,6 +5,8 @@ use clap::Args;
 use helpers::fs::write_whole;
 use std::path::{Path, PathBuf};
 
+pub(super) mod named;
+
 #[derive(Args)]
 pub(super) struct CompareArgs {
     #[command(flatten)]
@@ -20,6 +22,9 @@ pub(super) struct CompareArgs {
     /// Read the additional instructions from this UTF-8 file
     #[arg(long, value_name = "FILE")]
     extra_prompt_file: Option<PathBuf>,
+    /// Load this pinned add-on only in the second run; the extra prompt must be its activation slash command
+    #[arg(long, value_name = "NAME", value_parser = clap::builder::PossibleValuesParser::new(::agent::addon::ADDONS.iter().map(|addon| addon.name)))]
+    addon: Option<String>,
     /// New result directory, outside --tree; defaults to a new directory in the VM cache
     #[arg(long, value_name = "DIR")]
     output: Option<PathBuf>,
@@ -43,7 +48,21 @@ pub(super) fn dispatch(
             .map_err(Failure::Usage)?,
         _ => unreachable!("clap requires an extra prompt"),
     };
-    let with_prompt = prompts(&args.prompt, &extra).map_err(Failure::Usage)?;
+    let mut with_prompt = prompts(&args.prompt, &extra).map_err(Failure::Usage)?;
+    let addon = args
+        .addon
+        .as_deref()
+        .map(|name| {
+            let addon = ::agent::addon::named(name)
+                .ok_or_else(|| Failure::Usage(anyhow::anyhow!("unknown add-on: {name}")))?;
+            if ::agent::session::command(&extra).is_none() {
+                return Err(Failure::Usage(anyhow::anyhow!(
+                    "an add-on's extra prompt must be an activation slash command"
+                )));
+            }
+            Ok(addon)
+        })
+        .transpose()?;
     let output = std::path::absolute(
         args.output
             .clone()
@@ -53,6 +72,13 @@ pub(super) fn dispatch(
     let mut without = args.profile.options(output.join("without/run"))?;
     let mut with = args.profile.options(output.join("with/run"))?;
     let passed = context.runtime.block_on(async {
+        if let Some(addon) = addon {
+            with.addons
+                .push(::agent::addon::cached(addon, cache).await?);
+            with.activation = Some(extra.clone());
+            // Session::send adds the activation exactly once.
+            with_prompt = args.prompt.clone();
+        }
         prepare(&output, args.profile.tree.as_deref()).await?;
         for (options, name) in [(&mut without, "without"), (&mut with, "with")] {
             options.tree = Some(output.join("input"));

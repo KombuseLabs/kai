@@ -91,7 +91,14 @@ fn reply(with: bool, tool: bool) -> String {
     ].iter().map(|value| format!("event: {}\ndata: {value}\n\n", value["type"].as_str().unwrap())).collect()
 }
 
-async fn vm_pair(sequential: bool, fail_with: bool) {
+#[derive(Clone, Copy)]
+enum Entry {
+    Direct,
+    Named,
+    Ponytail,
+}
+
+async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
@@ -129,7 +136,7 @@ async fn vm_pair(sequential: bool, fail_with: bool) {
                 reader.read_exact(&mut bytes).await.unwrap();
                 let body: Value = serde_json::from_slice(&bytes).unwrap();
                 let messages = body["messages"].to_string();
-                let with = messages.contains("EXTRA_FIXTURE_MARKER");
+                let with = messages.contains("EXTRA_FIXTURE_MARKER") || messages.to_ascii_lowercase().contains("ponytail");
                 let followup = messages.contains("tool_result");
                 assert!(messages.contains("TASK_FIXTURE: build a calculator"));
                 captured.lock().unwrap().push(body);
@@ -147,10 +154,9 @@ async fn vm_pair(sequential: bool, fail_with: bool) {
         }
     });
     let mut cmd = tokio::process::Command::from(command(&dir));
-    cmd.env("ANTHROPIC_BASE_URL", endpoint)
-        .args(["agent", "compare", "--cache"])
-        .arg(cache)
-        .args([
+    cmd.env("ANTHROPIC_BASE_URL", endpoint).kill_on_drop(true);
+    if matches!(entry, Entry::Direct) {
+        cmd.args(["agent", "compare", "--cache"]).arg(&cache).args([
             "--model",
             "fixture",
             "--mock",
@@ -164,12 +170,31 @@ async fn vm_pair(sequential: bool, fail_with: bool) {
             "3",
             "--timeout",
             "90",
-        ])
-        .kill_on_drop(true);
-    if sequential {
-        cmd.arg("--sequential");
+        ]);
+        if sequential {
+            cmd.arg("--sequential");
+        }
+        cmd.args(["--", "TASK_FIXTURE: build a calculator"]);
+    } else {
+        std::fs::create_dir(dir.join("presets")).unwrap();
+        std::fs::create_dir(dir.join("below")).unwrap();
+        std::fs::write(dir.join("kai.toml"), "[runs]\ndirectory = 'presets'\n").unwrap();
+        let mut definition = json!({"model":"fixture", "prompt":"TASK_FIXTURE: build a calculator",
+            "extra_prompt_file":"../extra.txt", "tree":"../source", "max_turns":3, "sequential":sequential});
+        if matches!(entry, Entry::Ponytail) {
+            definition
+                .as_object_mut()
+                .unwrap()
+                .remove("extra_prompt_file");
+            definition["extra_prompt"] = "/ponytail full".into();
+            definition["addon"] = "ponytail".into();
+        }
+        std::fs::write(dir.join("presets/fixture.json"), definition.to_string()).unwrap();
+        cmd.current_dir(dir.join("below"))
+            .args(["run", "fixture", "--cache"])
+            .arg(&cache)
+            .args(["--mock", "--output", "../results"]);
     }
-    cmd.args(["--", "TASK_FIXTURE: build a calculator"]);
     let out: Output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
         .await
         .unwrap()
@@ -202,7 +227,21 @@ async fn vm_pair(sequential: bool, fail_with: bool) {
             format!("Created {name} result.")
         );
         let prompt = std::fs::read_to_string(result.join("run/prompt-1.md")).unwrap();
-        assert_eq!(prompt.contains("EXTRA_FIXTURE_MARKER"), name == "with");
+        if matches!(entry, Entry::Ponytail) {
+            assert_eq!(prompt.starts_with("/ponytail full\n"), name == "with");
+            assert_eq!(
+                record["addons"].as_array().unwrap().len(),
+                usize::from(name == "with")
+            );
+            assert_eq!(
+                record["turns"][0]["commands_invoked"]
+                    .to_string()
+                    .contains("ponytail"),
+                name == "with"
+            );
+        } else {
+            assert_eq!(prompt.contains("EXTRA_FIXTURE_MARKER"), name == "with");
+        }
     }
     assert!(sessions.iter().all(Value::is_string));
     assert_ne!(sessions[0], sessions[1]);
@@ -218,17 +257,77 @@ async fn vm_pair(sequential: bool, fail_with: bool) {
 #[tokio::test]
 #[ignore = "requires KVM and KAI_AGENT_TEST_CACHE; local fake API only"]
 async fn both_vms_run_in_parallel_and_keep_different_outputs() {
-    vm_pair(false, false).await;
+    vm_pair(false, false, Entry::Direct).await;
 }
 
 #[tokio::test]
 #[ignore = "requires KVM and KAI_AGENT_TEST_CACHE; local fake API only"]
 async fn sequential_mode_keeps_the_same_two_outputs() {
-    vm_pair(true, false).await;
+    vm_pair(true, false, Entry::Direct).await;
 }
 
 #[tokio::test]
 #[ignore = "requires KVM and KAI_AGENT_TEST_CACHE; local fake API only"]
 async fn a_failed_arm_does_not_discard_the_other_result() {
-    vm_pair(false, true).await;
+    vm_pair(false, true, Entry::Direct).await;
+}
+
+#[tokio::test]
+#[ignore = "requires KVM and KAI_AGENT_TEST_CACHE; local fake API only"]
+async fn a_named_run_resolves_config_and_file_paths_from_a_subdirectory() {
+    vm_pair(false, false, Entry::Named).await;
+}
+
+#[tokio::test]
+#[ignore = "requires KVM, KAI_AGENT_TEST_CACHE and cached Ponytail; local fake API only"]
+async fn a_named_ponytail_run_activates_the_addon_only_on_one_side() {
+    vm_pair(false, false, Entry::Ponytail).await;
+}
+
+#[test]
+fn named_runs_reject_bad_names_and_invalid_definitions() {
+    let dir = TestDir::new("named-run-errors");
+    std::fs::create_dir(dir.join("presets")).unwrap();
+    std::fs::create_dir(dir.join("below")).unwrap();
+    std::fs::write(dir.join("kai.toml"), "[runs]\ndirectory = 'presets'\n").unwrap();
+    for (name, expected) in [
+        ("../outside", "run name"),
+        ("missing", "presets/missing.json"),
+    ] {
+        let out = command(&dir.join("below"))
+            .args(["run", name, "--mock"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains(expected),
+            "{out:?}"
+        );
+    }
+    for (definition, expected) in [
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "typo":true}),
+            "unknown field",
+        ),
+        (json!({"model":"fixture", "prompt":"task"}), "exactly one"),
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "extra_prompt_file":"extra.txt"}),
+            "exactly one",
+        ),
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "max_turns":0}),
+            "max_turns",
+        ),
+    ] {
+        std::fs::write(dir.join("presets/fixture.json"), definition.to_string()).unwrap();
+        let out = command(&dir.join("below"))
+            .args(["run", "fixture", "--mock"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains(expected),
+            "{out:?}"
+        );
+    }
 }

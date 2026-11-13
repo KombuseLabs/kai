@@ -7,6 +7,7 @@ use helpers::lines::BoundedLines;
 use std::path::{Path, PathBuf};
 
 mod compare;
+pub(super) use compare::named::{NamedRunArgs, run_named};
 
 #[derive(Args)]
 pub(crate) struct AgentArgs {

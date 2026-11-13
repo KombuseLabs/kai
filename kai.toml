@@ -38,3 +38,7 @@ level = "warn"
 # relative path is taken from this file's directory.
 # Default: $XDG_CACHE_HOME/kai/vm, else ~/.cache/kai/vm.
 # cache = ".kai/vm"
+
+[runs]
+# Named JSON files for `kai run <name>`, relative to this config file.
+directory = ".runs"

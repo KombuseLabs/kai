@@ -31,6 +31,30 @@ pub(crate) struct Config {
     store: StoreConfig,
     #[serde(default)]
     vm: VmConfig,
+    #[serde(default)]
+    runs: RunsConfig,
+}
+
+/// Named JSON runs, resolved relative to kai.toml.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunsConfig {
+    directory: Option<PathBuf>,
+}
+
+/// Directory of named runs; `.runs` beside kai.toml, or here without one.
+pub(crate) fn runs_directory(config: Option<&Loaded<Config>>) -> PathBuf {
+    match config {
+        Some(config) => config.resolve(
+            config
+                .value
+                .runs
+                .directory
+                .as_deref()
+                .unwrap_or(Path::new(".runs")),
+        ),
+        None => PathBuf::from(".runs"),
+    }
 }
 
 /// The `[log]` table, as `--log-level` and `--log-file`.
