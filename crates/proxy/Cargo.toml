@@ -1,0 +1,39 @@
+[package]
+name = "proxy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A run's way out of its microVM: `fence proxy` on the socket the launcher's port ends at, and its ledger counted"
+
+[dependencies]
+# helpers::process: fence's standard error kept, and its end waited for or
+# forced.
+helpers = { path = "../helpers" }
+# Reads fence's ledger lines. Already in the tree through github.
+serde_json = "1.0.154"
+# The module's error type, as in helpers.
+thiserror = "2.0.21"
+# fence runs as a child process; its output is read, and its ledger, while
+# kai waits on the VM. A program starts the runtime; this crate never does.
+# `process` is in the tree through helpers.
+tokio = { version = "1.54.1", features = ["fs", "io-util", "process", "rt", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# Runs the async tests and the example; the tests are the guest's tools,
+# connecting to the socket.
+tokio = { version = "1.54.1", features = ["io-util", "macros", "net", "rt"] }
+
+# A stand-in for `fence proxy` that keeps the contract `Egress` relies on,
+# so that the tests run where fence is not installed. Not for use.
+[[bin]]
+name = "fence-stand-in"
+path = "src/bin/fence-stand-in.rs"
+test = false
+doc = false
+
+[lints]
+workspace = true
