@@ -9,14 +9,13 @@ publish = false
 description = "Reads a board's issues from GitHub into kai's tickets, one way"
 
 [dependencies]
+# The HTTP client's TLS setup and the rule for plain HTTP (helpers::http).
+helpers = { path = "../helpers" }
 # HTTP to GitHub's API. Async, on tokio, which kai takes anyway for
 # managing VMs (D2). Without default features: HTTP/1 only, no system
 # proxy lookup, and TLS through rustls with the system's certificates but
-# without a crypto provider of its own (see rustls below).
+# without a crypto provider of its own (helpers::http installs ring).
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
-# rustls' crypto provider for reqwest: ring, rather than reqwest's default
-# aws-lc, which is a C build and brings more licences.
-rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 # The token, so that it never shows in Debug output or a log line.
 secrecy = "0.10.3"
 # The shape of GitHub's answers, as kai's own structs rather than a client

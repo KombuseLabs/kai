@@ -18,6 +18,7 @@ mod form;
 
 use std::time::Duration;
 
+use helpers::http;
 use secrecy::ExposeSecret as _;
 /// The token's type, so that callers need not depend on `secrecy`.
 pub use secrecy::SecretString;
@@ -88,20 +89,15 @@ impl Client {
     /// (`http://127.0.0.1`, `http://localhost`, `http://[::1]`), so that the
     /// token never crosses a network in the clear.
     pub fn new(token: SecretString, api: &str) -> Result<Client, Error> {
-        if !api.starts_with("https://") && !is_loopback_http(api) {
+        if !http::allowed_url(api) {
             return Err(Error::Api(api.to_owned()));
         }
-        // reqwest is built without a crypto provider of its own (that would
-        // be aws-lc, a C build); ring is installed for the process. One
-        // installed before stays, hence the ignored result.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
+        let http = http::builder(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|err| Error::Transport(chain(&err)))?;
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
         Ok(Client {
             http,
             graphql: format!("{}/graphql", api.trim_end_matches('/')),
@@ -165,12 +161,12 @@ impl Client {
             .json(request)
             .send()
             .await
-            .map_err(|err| Error::Transport(chain(&err)))?;
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
         let status = response.status();
         let body = response
             .bytes()
             .await
-            .map_err(|err| Error::Transport(chain(&err)))?;
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
         if !status.is_success() {
             let message = match serde_json::from_slice::<wire::Message>(&body) {
                 Ok(answer) => answer.message,
@@ -192,32 +188,6 @@ impl Client {
             .data
             .ok_or_else(|| Error::Answer("neither data nor errors".to_owned()))
     }
-}
-
-/// `err` and each error that caused it, joined by `: `.
-fn chain(err: &dyn std::error::Error) -> String {
-    let mut text = err.to_string();
-    let mut source = err.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    text
-}
-
-/// Whether `api` is plain HTTP to this machine: a loopback host, an
-/// optional port, and no user part that could hide another host.
-fn is_loopback_http(api: &str) -> bool {
-    let Some(rest) = api.strip_prefix("http://") else {
-        return false;
-    };
-    let authority = rest.split('/').next().unwrap_or("");
-    let host = match authority.rsplit_once(':') {
-        Some((host, port)) if port.bytes().all(|b| b.is_ascii_digit()) => host,
-        _ => authority,
-    };
-    !authority.contains('@') && matches!(host, "127.0.0.1" | "localhost" | "[::1]")
 }
 
 /// The token `gh auth token` prints: that of the GitHub CLI's login on
