@@ -8,6 +8,7 @@ model, no network. The types it reads and returns are in the crate
 ## The types
 
 ```mermaid
+%% checked against crates/types, crates/engine
 classDiagram
     direction LR
 
@@ -73,8 +74,8 @@ classDiagram
     class Outcome {
         <<enumeration>>
         Pass
-        Fail(why)
-        NotChecked(why)
+        Fail(String)
+        NotChecked(String)
     }
     class Verdict {
         <<enumeration>>
@@ -93,6 +94,7 @@ classDiagram
     Finding --> Rule
     Finding --> Outcome
     Qualification ..> Verdict : verdict()
+    note for Outcome "Fail and NotChecked say why, in words"
 ```
 
 A form field left empty is `None`; qualifying is what judges it. A
@@ -101,6 +103,7 @@ A form field left empty is `None`; qualifying is what judges it. A
 ## What `qualify` does
 
 ```mermaid
+%% drawn from engine::qualify::qualify#da99814f, engine::qualify::form_rules#90473c16
 flowchart TD
     T([Ticket]) --> I["Issue rules, always applied:<br/>label, trust-gate, open"]
     I --> F{"Is the body the<br/>kai ticket form?"}
@@ -128,6 +131,7 @@ flowchart TD
 ## The verdict
 
 ```mermaid
+%% drawn from types::Qualification::verdict#a956ad69
 flowchart TD
     Q([Qualification]) --> A{"Did any rule fail?"}
     A -- yes --> R([Refused])
@@ -147,6 +151,8 @@ judges each ticket. Qualifying needs no network: it works on what the
 last sync fetched.
 
 ```mermaid
+%% checked against crates/store, crates/github, crates/engine
+%% drawn from cli::cmd::github::sync#fe3ff9f8, cli::cmd::ticket::print_qualify#bfc62412
 sequenceDiagram
     actor You
     participant cli as kai (cli)

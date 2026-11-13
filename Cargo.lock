@@ -275,6 +275,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 
 [[package]]
+name = "diagrams"
+version = "0.1.0"
+dependencies = [
+ "helpers",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+ "toml",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

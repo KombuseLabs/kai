@@ -1,8 +1,11 @@
-# The checks of the repository, in three jobs that run side by side:
-#   check  nothing private, formatting, clippy, the tests, the API docs
-#   deny   `cargo deny check` against deny.toml: advisories, licences and
-#          sources of the Rust dependencies
-#   text   spelling (typos) and the links between the Markdown files (lychee)
+# The checks of the repository, in four jobs that run side by side:
+#   check     nothing private, formatting, clippy, the tests, the API docs
+#   deny      `cargo deny check` against deny.toml: advisories, licences and
+#             sources of the Rust dependencies
+#   text      spelling (typos) and the links between the Markdown files (lychee)
+#   diagrams  the Mermaid of every diagram (merman-cli), and crates/diagrams'
+#             tests: each diagram against the code, the stamps, the crate
+#             graph and the stubs; source text only, no VM and no kai built
 # Nothing here calls a model or costs money.
 #
 # Every action is pinned to a commit; the comment behind it names the release
@@ -30,6 +33,7 @@ env:
   CARGO_DENY_VERSION: 0.20.2
   TYPOS_VERSION: 1.52.2
   LYCHEE_VERSION: 0.24.2
+  MERMAN_VERSION: 0.9.3
 
 jobs:
   check:
@@ -146,3 +150,40 @@ jobs:
       # can fail for reasons that are not the repository's.
       - name: Links
         run: git ls-files -z '*.md' | xargs -0 "$HOME/.cache/kai-tools/text/bin/lychee" --offline --no-progress
+
+  diagrams:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          cargo --version
+
+      - name: merman-cli cache
+        id: merman
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/kai-tools/merman
+          key: merman-${{ runner.os }}-${{ env.MERMAN_VERSION }}
+
+      - name: Install merman-cli
+        if: steps.merman.outputs.cache-hit != 'true'
+        run: cargo install --locked --version "$MERMAN_VERSION" --root "$HOME/.cache/kai-tools/merman" merman-cli
+
+      # merman is a port of Mermaid; what it accepts GitHub's renderer
+      # usually draws, but that is not guaranteed. The stubs' passing
+      # fixtures are Mermaid too; the refused ones break it on purpose.
+      - name: Mermaid
+        run: |
+          git ls-files -z '*.md' 'crates/diagrams/tests/fixtures/stubs/pass/*.mmd' \
+            | xargs -0 -n1 "$HOME/.cache/kai-tools/merman/bin/merman-cli" lint
+
+      # Builds crates/diagrams and helpers only; the stubs test compiles
+      # generated Rust with the toolchain's rustc.
+      - name: Diagram checks
+        run: cargo test --locked -p diagrams

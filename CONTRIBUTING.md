@@ -27,8 +27,13 @@ RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --locked
 cargo deny --locked --workspace check
 git ls-files -z | xargs -0 typos
 git ls-files -z '*.md' | xargs -0 lychee --offline --no-progress
+git ls-files -z '*.md' | xargs -0 -n1 merman-cli lint
 tools/check-public.sh
 ```
+
+Each Mermaid diagram in a Markdown file says in its first lines how it
+stays true to the code; `crates/diagrams` checks it with the tests. A
+diagram whose code changed on purpose is changed in the same commit.
 
 `.github/workflows/ci.yml` names the version of each tool. None of them
 calls a model or costs money.

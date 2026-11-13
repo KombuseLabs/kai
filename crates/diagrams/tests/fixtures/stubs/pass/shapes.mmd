@@ -1,0 +1,38 @@
+%% A planned diagram: structs, a generic struct, a tuple struct, an enum
+%% with each kind of payload, receivers, relations with multiplicities.
+classDiagram
+    direction LR
+
+    class Canvas {
+        +String title
+        +Vec~Shape~ shapes
+        -Option~Meters~ grid
+        ~Store~String~ names
+        +new(title: String)$ Canvas
+        +area(&self) f64
+        +scale(&mut self, by: f64)
+        +into_shapes(self) Vec~Shape~
+        +count() usize
+        ~reset(&mut self)
+    }
+    class Store~T~ {
+        +Vec~T~ items
+        +push(&mut self, item: T)
+        +first(&self) Option~&T~
+    }
+    class Meters {
+        +f64 0
+    }
+    class Shape {
+        <<enumeration>>
+        Empty
+        Circle(f64)
+        Rect(width: f64, height: f64)
+        Path(Vec~(f64, f64)~)
+    }
+
+    Canvas "1" *-- "*" Shape
+    Canvas "1" o-- "0..1" Meters : grid
+    Canvas --> Store
+    Store ..> Shape : holds any T
+    note for Canvas "Where shapes are drawn"

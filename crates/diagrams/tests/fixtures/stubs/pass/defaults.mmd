@@ -1,0 +1,24 @@
+%% A planned trait whose default items take or return Self in each way,
+%% and functions whose parameters are used, unused on purpose, or both.
+classDiagram
+    class Merge {
+        <<trait>>
+        +merge(other: Self) Self
+        +merge_all(others: Vec~Self~)
+        +pick(choice: Option~Self~)
+        +pair(pair: (Self, u8))
+        +compare(other: &Self) bool
+        +id(&self) u64*
+    }
+    class Counter {
+        +u64 count
+        +work(_x: u8)
+        +mix(_x: u8, y: u8)
+        +add(&mut self, by: u64)
+    }
+    class tick {
+        <<function>>
+        +tick(_now: u64)
+        +tock(now: u64)
+    }
+    Counter ..|> Merge

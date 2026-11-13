@@ -1,0 +1,37 @@
+[package]
+name = "diagrams"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Keeps kai's diagrams true to the code: Mermaid blocks in Markdown checked against the Rust they show, the crate graph generated, and Rust stubs printed from a planned class diagram"
+
+# A maintainer's tool: prints the Rust stubs of a planned class diagram and
+# writes no file. Not part of the program `kai`.
+[[bin]]
+name = "diagram-stubs"
+path = "src/bin/diagram-stubs.rs"
+test = false
+doc = false
+
+[dependencies]
+# Reads Rust source: the items a diagram shows, and the tokens a stamp
+# hashes. In the tree already (the derives of clap and thiserror); here it
+# parses strings, so without proc-macro support.
+syn = { version = "3.0.10", default-features = false, features = ["full", "parsing", "printing", "clone-impls"] }
+# Line numbers for the items syn reads, so that a message names file and
+# line. In the tree already; `span-locations` adds positions to its spans.
+proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
+# Turns what syn read back into tokens, for stamps and stubs. In the tree
+# already, with syn.
+quote = { version = "1.0.47", default-features = false }
+# The workspace's manifests, read for the crate graph. In the tree already,
+# through helpers.
+toml = { version = "1.2.1", default-features = false, features = ["std", "parse", "serde"] }
+# helpers::hash, the SHA-256 of a stamp.
+helpers = { path = "../helpers" }
+
+[lints]
+workspace = true

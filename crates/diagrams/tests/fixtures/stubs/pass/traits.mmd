@@ -1,0 +1,34 @@
+%% A planned diagram: a trait with items with and without a default, two
+%% types that implement it (written both ways round), free functions, and
+%% a class that is not code.
+classDiagram
+    class Runner {
+        <<trait>>
+        +start(&mut self, port: u16)*
+        +name(&self) String*
+        +stop(self)
+        +describe()$ String
+        +copy(&self) Option~Self~
+    }
+    class Vm {
+        -u16 port
+        -bool running
+    }
+    class Container {
+        +String image
+    }
+    class launch {
+        <<function>>
+        +launch(runner: &mut Vm, port: u16) bool
+        ~retry(times: u32)
+    }
+    class Firecracker {
+        <<process>>
+        runs the VM
+    }
+
+    Vm ..|> Runner
+    Runner <|.. Container
+    Vm ..> Firecracker : starts
+    launch ..> Vm : starts
+    note for Runner "Something that runs a job"
