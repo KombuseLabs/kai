@@ -235,8 +235,11 @@ async fn one_turn(session: &mut Session, prompt: &str) -> (Vec<Value>, agent::se
         if event.kind == "result" {
             break;
         }
-        if event.payload["type"] == "user" {
-            for block in event.payload["message"]["content"].as_array().unwrap() {
+        // A replayed prompt's content is a string; a tool result's is blocks.
+        if event.payload["type"] == "user"
+            && let Some(blocks) = event.payload["message"]["content"].as_array()
+        {
+            for block in blocks {
                 if block["type"] == "tool_result" {
                     results.push(block.clone());
                 }
@@ -461,4 +464,202 @@ async fn a_tool_outside_the_allowlist_is_not_offered_and_does_not_run() {
     session.close().await.unwrap();
     assert!(tree_out.is_dir() && !tree_out.join("ran").exists());
     fixture.stop().await;
+}
+
+/// A stand-in model that keeps every request's body, which mimic's ledger
+/// deliberately does not, and answers each with mimic's streamed text.
+async fn capturing_model() -> wiremock::MockServer {
+    const REPLY: &str = concat!(
+        "event: message_start\n",
+        r#"data: {"type":"message_start","message":{"id":"msg_fixture","type":"message","role":"assistant","model":"test-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}"#,
+        "\n\nevent: content_block_start\n",
+        r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        "\n\nevent: content_block_delta\n",
+        r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fixture reply"}}"#,
+        "\n\nevent: content_block_stop\n",
+        r#"data: {"type":"content_block_stop","index":0}"#,
+        "\n\nevent: message_delta\n",
+        r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}"#,
+        "\n\nevent: message_stop\n",
+        r#"data: {"type":"message_stop"}"#,
+        "\n\n",
+    );
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/v1/messages"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_raw(REPLY, "text/event-stream"))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// An invented add-on of one skill whose text holds `marker`, laid out as
+/// a local plugin `marker`, packed into `cache` from a local server.
+async fn marker_addon(
+    cache: &Path,
+    marker: &str,
+) -> agent::layer::Fetched<agent::addon::AddonInfo> {
+    use agent::addon::{Addon, AddonFile, Written};
+    fn leak(text: String) -> &'static str {
+        Box::leak(text.into_boxed_str())
+    }
+    let skill = format!(
+        "---\nname: marker\ndescription: An invented skill for kai's tests.\n---\n\nSay {marker} first.\n"
+    );
+    let licence = "Invented licence: a fixture, not a grant.\n";
+    let server = wiremock::MockServer::start().await;
+    let mut files = vec![];
+    for (at, source, path, body) in [
+        (
+            "/skill",
+            "skills/marker/SKILL.md",
+            "/opt/kai/addons/marker/skills/marker/SKILL.md",
+            skill.as_str(),
+        ),
+        (
+            "/licence",
+            "LICENSE",
+            "/opt/kai/addons/marker/LICENSE",
+            licence,
+        ),
+    ] {
+        wiremock::Mock::given(wiremock::matchers::path(at))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+        let sha = leak(helpers::hash::sha256_bytes(body.as_bytes()));
+        files.push(AddonFile {
+            source,
+            path,
+            artefact: vm::Artefact {
+                name: "an invented add-on's file",
+                file: leak(format!("marker{}", at.replace('/', "-"))),
+                url: leak(format!("{}{at}", server.uri())),
+                download_sha256: sha,
+                member: None,
+                sha256: sha,
+                executable: false,
+            },
+            length: body.len() as u64,
+        });
+    }
+    let addon = Addon {
+        name: "marker",
+        repository: "https://example.invalid/marker",
+        commit: "0123456789abcdef0123456789abcdef01234567",
+        licence: "LicenseRef-invented",
+        licence_file: "/opt/kai/addons/marker/LICENSE",
+        files: Box::leak(files.into_boxed_slice()),
+        written: &[Written {
+            path: "/opt/kai/addons/marker/.claude-plugin/plugin.json",
+            bytes: b"{\"name\":\"marker\",\"description\":\"An invented plugin.\",\"version\":\"0.0.0\"}\n",
+        }],
+    };
+    agent::addon::fetch(&addon, cache).await.unwrap()
+}
+
+/// One session of one turn against `model`, in a run directory of its own
+/// under `root`; the turn, and the request bodies the model got for it.
+async fn marked_turn(
+    root: &Path,
+    run: &str,
+    model: &wiremock::MockServer,
+    addons: Vec<agent::layer::Fetched<agent::addon::AddonInfo>>,
+    activation: Option<&str>,
+    prompt: &str,
+) -> (agent::session::Turn, Vec<String>) {
+    let cache: PathBuf = std::env::var_os("KAI_AGENT_TEST_CACHE")
+        .expect("explicit test cache")
+        .into();
+    let before = model.received_requests().await.unwrap().len();
+    let route = Route::new(&model.uri(), None, true).unwrap();
+    let mut options = Options::new("test-model".into(), route, root.join(run));
+    options.timeout_s = 60;
+    options.tools.clear();
+    options.addons = addons;
+    options.activation = activation.map(str::to_owned);
+    let mut session = Session::start(&cache, options).await.unwrap();
+    session.send(prompt).await.unwrap();
+    while session.next_event().await.unwrap().kind != "result" {}
+    let turn = session.turns()[0].clone();
+    assert_eq!(session.close().await.unwrap().exit_code, Some(0));
+    let bodies = model.received_requests().await.unwrap()[before..]
+        .iter()
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .collect();
+    (turn, bodies)
+}
+
+#[tokio::test]
+#[ignore = "requires KVM, a fetched runtime, explicit cache and squashfs-tools"]
+async fn an_addon_reaches_the_model_only_where_it_was_invoked() {
+    let root = PartDir::beside(&std::env::temp_dir().join("kai-addon-vm-test")).unwrap();
+    let marker = format!("MARKER-{}-skill", std::process::id());
+    let task = format!("TASK-{}-fixture", std::process::id());
+    let addon = marker_addon(&root.path().join("cache"), &marker).await;
+    let model = capturing_model().await;
+    let carries = |bodies: &[String], needle: &str| bodies.iter().any(|body| body.contains(needle));
+    let offers_marker = |turn: &agent::session::Turn| {
+        turn.skills_offered
+            .as_ref()
+            .is_some_and(|skills| skills.iter().any(|skill| skill == "marker:marker"))
+    };
+
+    // Plain: no add-on.
+    let (plain, bodies) = marked_turn(root.path(), "plain", &model, vec![], None, &task).await;
+    assert_eq!(plain.outcome, "answered");
+    assert!(carries(&bodies, &task) && !carries(&bodies, &marker));
+    assert!(!offers_marker(&plain), "{:?}", plain.skills_offered);
+    assert_eq!(plain.commands_invoked, Some(vec![]));
+
+    // Installed and discoverable, not invoked: nothing of it is sent.
+    let (idle, bodies) = marked_turn(
+        root.path(),
+        "idle",
+        &model,
+        vec![addon.clone()],
+        None,
+        &task,
+    )
+    .await;
+    assert!(offers_marker(&idle), "{:?}", idle.skills_offered);
+    assert_eq!(idle.commands_invoked, Some(vec![]));
+    assert!(carries(&bodies, &task) && !carries(&bodies, &marker));
+
+    // The variant: invoked, and the skill's text and the task reach the
+    // model in one request.
+    let (variant, bodies) = marked_turn(
+        root.path(),
+        "variant",
+        &model,
+        vec![addon.clone()],
+        Some("/marker full"),
+        &task,
+    )
+    .await;
+    assert_eq!(variant.outcome, "answered");
+    assert!(
+        agent::session::invoked(&variant, "/marker full"),
+        "{:?}",
+        variant.commands_invoked
+    );
+    assert!(
+        bodies
+            .iter()
+            .any(|body| body.contains(&marker) && body.contains(&task)),
+        "{} requests",
+        bodies.len()
+    );
+    let saved = record(&root.path().join("variant"));
+    assert_eq!(saved["addons"][0]["name"], "marker");
+    assert_eq!(
+        saved["addons"][0]["inventory"],
+        addon.info.inventory.as_str()
+    );
+    assert_eq!(saved["activation"], "/marker full");
+
+    // A fresh plain session after it carries nothing of it.
+    let (fresh, bodies) = marked_turn(root.path(), "fresh", &model, vec![], None, &task).await;
+    assert_eq!(fresh.outcome, "answered");
+    assert!(carries(&bodies, &task) && !carries(&bodies, &marker));
 }

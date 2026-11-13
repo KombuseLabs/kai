@@ -5,9 +5,11 @@ each pinned by its SHA-256, and files kai writes beside them, laid
 read-only under `/opt/kai/addons/<name>/` in a layer of their own.
 `layer.json` lies beside `layer.sqfs` in an entry of kai's VM cache,
 `addons/<key>/`, and is written last, when the layer was packed and read
-back. `kai agent fetch --addon <name>` writes it, and reads it back on the
-next call: the layer is used only when the JSON names the key kai expects
-and the layer has the length and SHA-256 the JSON names, hashed afresh.
+back. `kai agent fetch --addon <name>` writes it; a session that is given
+the add-on reads it back first and uses the layer only when the JSON names
+the key kai expects and the layer has the length and SHA-256 the JSON
+names, hashed afresh. `agent.json` ([kai-agent-run/1](kai-agent-run-1.md))
+carries each add-on's record in `addons`.
 
 | Field | Meaning |
 | --- | --- |

@@ -146,8 +146,17 @@ writes, `.claude-plugin/plugin.json`, the directory is a local plugin of
 Claude Code, the skill at `skills/ponytail/SKILL.md`. Beside the layer,
 its record (`kai-addon-layer/1`) names the pin, the digest of the layer's
 inventory (what it holds) and the layer's own digest (its bytes); see
-[kai-addon-layer/1](contracts/kai-addon-layer-1.md). No session gives an
-add-on to Claude yet; `--layer` only puts it into the VM.
+[kai-addon-layer/1](contracts/kai-addon-layer-1.md).
+
+`kai agent run` and `kai agent session` take `--addon ponytail`, fetched
+before, and `--activation "/ponytail full"`: the layer is mounted, its
+directory given to Claude as a local plugin, and the activation put on a
+line of its own before the first turn's text. `agent.json` keeps three
+facts apart: the add-on installed, its skill offered in a turn
+(`skills_offered`), and the slash command Claude took (`commands_invoked`).
+Claude passes an unknown slash command to the model as plain text, so
+`agent run` fails when the activation was not taken. Against a fake API,
+Ponytail's text and the task went to the model in one request.
 
 `kai agent run --model <id> --tree ./fixture --tree-out ./after -- "<prompt>"`
 runs one turn. `kai agent session --model <id> --tree ./fixture` accepts
@@ -216,10 +225,9 @@ built without its init, and `kai vm doctor` says so.
 
 - A ticket's check, its hidden tests, run in a microVM on the layers
   `kai ticket deps` makes.
-- A real-model run through the external proxy. Sessions and tool calls
-  are tested with a fake API only.
-- An add-on given to the agent in a session: which skill it loads, how it
-  is invoked, and evidence that it reached the model.
+- A real-model run through the external proxy. Sessions, tool calls and
+  add-ons are tested with a fake API only; whether a model follows an
+  add-on's skill is not tested.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 

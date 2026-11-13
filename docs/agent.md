@@ -30,6 +30,8 @@ classDiagram
         +String outcome
         +String prompt_sha256
         +Option~Vec~String~~ tools_offered
+        +Option~Vec~String~~ skills_offered
+        +Option~Vec~String~~ commands_invoked
         +Value result
     }
 ```
@@ -43,6 +45,18 @@ Drop stops the VM and records an incomplete outcome. A turn's
 `tools_offered` is what Claude's `init` event of that turn says it offers
 the model, which can be fewer than the options' `tools`; a difference is
 logged once as a warning.
+
+An add-on ([`agent::addon`](../crates/agent/src/addon.rs)) comes in through
+the options' `addons`: its layer is mounted above the runtime's and its
+directory given to Claude as a local plugin. The options' `activation`,
+such as `/ponytail full`, goes on a line of its own before the first
+turn's text. Whether the add-on reached the session is three facts kept
+apart: installed (`agent.json`'s `addons`), discoverable (a turn's
+`skills_offered`, from the same `init` event) and invoked (a turn's
+`commands_invoked`, from the user messages Claude replays). Claude takes
+an unknown slash command as plain text without an error, so `invoked`
+checks the activation against what Claude replayed, and a session warns
+when the first turn did not take it.
 
 The [wire contract](../contracts/kai-agent-session-1.md) and
 [run record](../contracts/kai-agent-run-1.md) define limits and failures.
@@ -59,5 +73,9 @@ Bash in the tree as uid 1000 with all six tools offered, a Write and an
 Edit that come out with the tree, a permission request that is denied and
 recorded, and a tool outside the allowlist that is not offered. One test
 holds a tree's CLAUDE.md, AGENTS.md and hooks out of the session, which
-the wrapper's empty setting sources do. They make no provider call.
-Real-model qualification is separate.
+the wrapper's empty setting sources do. One test packs an invented skill
+with a marker as an add-on and runs four fresh sessions against a stand-in
+that keeps every request's body: plain, the add-on installed but not
+invoked, the add-on invoked, and plain again; the marker reaches the model
+only in the third, in the same request as the task. They make no provider
+call. Real-model qualification is separate.

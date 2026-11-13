@@ -71,17 +71,25 @@ function exact(message, keys) {
 async function command(m) {
   if (closing || m.format !== FORMAT) throw new Error('protocol');
   if (m.op === 'start') {
-    if (started || !exact(m, ['format', 'op', 'model', 'tools']) || typeof m.model !== 'string'
+    const plugins = m.plugins ?? [];
+    if (started || !exact(m, ['format', 'op', 'model', 'tools', 'plugins']) || typeof m.model !== 'string'
       || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(m.model) || !Array.isArray(m.tools)
-      || m.tools.some(tool => !['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'].includes(tool))) throw new Error('start');
+      || m.tools.some(tool => !['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'].includes(tool))
+      || !Array.isArray(plugins) || plugins.length > 8 || new Set(plugins).size !== plugins.length
+      || plugins.some(path => typeof path !== 'string' || !/^\/opt\/kai\/addons\/[a-z0-9][a-z0-9-]{0,63}$/.test(path))) throw new Error('start');
     started = true;
     // Not bare: under --bare, Claude offers only Bash, Read and Edit. No
     // setting source either, so nothing of the tree configures Claude: its
     // CLAUDE.md, AGENTS.md, settings and hooks stay out. Empty, not omitted.
+    // An add-on comes in as a local plugin from its read-only layer, the
+    // one way a skill loads without a setting source. Claude replays each
+    // user message, so the host sees which slash command it took.
     queryHandle = query({ prompt: messages(), options: {
       pathToClaudeCodeExecutable: '/opt/kai/agents/session/claude',
       cwd: '/job/tree', model: m.model, tools: m.tools, allowedTools: m.tools,
       includePartialMessages: true, settingSources: [],
+      plugins: plugins.map(path => ({ type: 'local', path })),
+      extraArgs: { 'replay-user-messages': null },
       canUseTool: async () => ({ behavior: 'deny', message: 'Tool interaction is not enabled for this session.' }),
       env: { ...process.env }, stderr: () => {},
     } });

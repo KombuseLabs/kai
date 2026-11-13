@@ -119,6 +119,14 @@ pub struct Options {
     pub timeout_s: u64,
     /// Tool allowlist, drawn from [`TOOLS`]. Empty disables tools.
     pub tools: Vec<String>,
+    /// Add-ons, as [`crate::addon::cached`] found them: each layer is
+    /// mounted above the runtime and its directory given to Claude as a
+    /// local plugin. At most eight, each name once.
+    pub addons: Vec<crate::layer::Fetched<crate::addon::AddonInfo>>,
+    /// A slash command, with its arguments, put on a line of its own before
+    /// the first turn's text, such as `/ponytail full`; never before a
+    /// later turn's.
+    pub activation: Option<String>,
     /// Run directory, which must be absent or empty.
     pub run_dir: PathBuf,
 }
@@ -136,6 +144,8 @@ impl Options {
             memory_mib: 4096,
             timeout_s: 600,
             tools: TOOLS.iter().map(|s| (*s).into()).collect(),
+            addons: vec![],
+            activation: None,
             run_dir,
         }
     }
@@ -156,8 +166,38 @@ impl Options {
         if self.timeout_s == 0 {
             return Err(Error::Invalid("timeout must be positive"));
         }
+        let mut names = std::collections::BTreeSet::new();
+        if self.addons.len() > 8
+            || !self
+                .addons
+                .iter()
+                .all(|addon| names.insert(addon.info.name.as_str()))
+        {
+            return Err(Error::Invalid("at most eight add-ons, each once"));
+        }
+        if let Some(activation) = &self.activation
+            && command(activation).is_none()
+        {
+            return Err(Error::Invalid(
+                "an activation is one line: a slash command and its arguments",
+            ));
+        }
         Ok(())
     }
+}
+
+/// The slash command an activation starts with, such as `/ponytail` of
+/// `/ponytail full`: `/` and a name of letters, digits, `:`, `_` and `-`,
+/// then nothing or a space and arguments, on one line of at most 256
+/// bytes. `None` when `activation` is not one.
+pub fn command(activation: &str) -> Option<&str> {
+    let name = activation.split(' ').next()?;
+    let plain = name.len() > 1
+        && name.starts_with('/')
+        && name[1..]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b":_-".contains(&b));
+    (plain && activation.len() <= 256 && !activation.contains(['\n', '\r'])).then_some(name)
 }
 
 /// One ordered event from the guest. Payload contains SDK data without its cost
@@ -194,6 +234,13 @@ pub struct Turn {
     /// `init` event names them; `None` when the turn brought no such event.
     /// They can differ from [`Options::tools`], the tools asked for.
     pub tools_offered: Option<Vec<String>>,
+    /// The skills Claude offered in this turn, as the same `init` event
+    /// names them, an add-on's as `<plugin>:<skill>`; `None` without one.
+    pub skills_offered: Option<Vec<String>>,
+    /// The slash commands Claude took in this turn, as the user messages
+    /// it replays name them (`/ponytail`); empty when it took none, `None`
+    /// when it replayed no user message.
+    pub commands_invoked: Option<Vec<String>>,
     /// SDK terminal result without cost estimates.
     pub result: Value,
 }
@@ -202,6 +249,8 @@ struct Active {
     id: u64,
     prompt_sha256: String,
     tools_offered: Option<Vec<String>>,
+    skills_offered: Option<Vec<String>>,
+    commands_invoked: Option<Vec<String>>,
     interrupt: bool,
     acknowledged: bool,
     terminal: bool,
@@ -276,6 +325,8 @@ impl Session {
         spec.tree_out = options.tree_out.clone();
         spec.layers = options.layers.clone();
         spec.layers.push(runtime_layer.file);
+        spec.layers
+            .extend(options.addons.iter().map(|addon| addon.file.clone()));
         spec.ports = vec![
             vm::Port {
                 guest: 8787,
@@ -383,15 +434,21 @@ impl Session {
         sent
     }
 
-    /// Submits one turn. Overlap is refused, including while interruption drains.
+    /// Submits one turn. Overlap is refused, including while interruption
+    /// drains. The first turn's text follows the activation, if any, on a
+    /// line of its own; what is sent is what `prompt-<turn>.md` holds.
     pub async fn send(&mut self, text: &str) -> Result<u64, Error> {
         if self.active.is_some() {
             return Err(Error::Invalid("a turn is still active"));
         }
+        let id = self.next_turn;
+        let text = match &self.options.activation {
+            Some(activation) if id == 1 => format!("{activation}\n{text}"),
+            _ => text.to_owned(),
+        };
         if text.len() > MAX_PROMPT {
             return Err(Error::Invalid("prompt exceeds 64 KiB"));
         }
-        let id = self.next_turn;
         write_whole(
             &self.options.run_dir.join(format!("prompt-{id}.md")),
             text.replace(&self.options.route.credential, "[redacted]")
@@ -404,6 +461,8 @@ impl Session {
             id,
             prompt_sha256: helpers::hash::sha256_bytes(text.as_bytes()),
             tools_offered: None,
+            skills_offered: None,
+            commands_invoked: None,
             interrupt: false,
             acknowledged: false,
             terminal: false,
@@ -505,6 +564,18 @@ impl Session {
                     }
                     active.tools_offered = Some(offered);
                 }
+                if active.skills_offered.is_none()
+                    && let Some(skills) = offered_skills(&event)?
+                {
+                    active.skills_offered = Some(skills);
+                }
+                if let Some(commands) = replayed_commands(&event)? {
+                    let invoked = active.commands_invoked.get_or_insert_with(Vec::new);
+                    if invoked.len() + commands.len() > 64 {
+                        return Err(Error::Protocol("too many replayed commands"));
+                    }
+                    invoked.extend(commands);
+                }
                 if event.kind == "interrupted" {
                     if !active.interrupt || active.acknowledged {
                         return Err(Error::Protocol("unexpected interrupt acknowledgement"));
@@ -531,13 +602,25 @@ impl Session {
                     } else {
                         "agent-error"
                     };
-                    self.turns.push(Turn {
+                    let turn = Turn {
                         id: active.id,
                         outcome: outcome.into(),
                         prompt_sha256: active.prompt_sha256.clone(),
                         tools_offered: active.tools_offered.clone(),
+                        skills_offered: active.skills_offered.clone(),
+                        commands_invoked: active.commands_invoked.clone(),
                         result: event.payload.clone(),
-                    });
+                    };
+                    if let Some(activation) = &self.options.activation
+                        && turn.id == 1
+                        && !invoked(&turn, activation)
+                    {
+                        tracing::warn!(
+                            activation = activation.as_str(),
+                            "Claude did not take the activation's command; the first turn went to the model as plain text"
+                        );
+                    }
+                    self.turns.push(turn);
                 }
                 if active.terminal && (!active.interrupt || active.acknowledged) {
                     self.active = None;
@@ -607,8 +690,18 @@ impl Session {
     /// The start's last steps, once a session exists: the wrapper is
     /// configured and must answer with the pinned versions.
     async fn handshake(&mut self) -> Result<(), Error> {
-        self.command(json!({"op":"start", "model":self.options.model, "tools":self.options.tools}))
-            .await?;
+        let mut start =
+            json!({"op":"start", "model":self.options.model, "tools":self.options.tools});
+        // Without add-ons the command is what it was before they existed.
+        if !self.options.addons.is_empty() {
+            start["plugins"] = self
+                .options
+                .addons
+                .iter()
+                .map(|addon| addon.info.dir.clone())
+                .collect();
+        }
+        self.command(start).await?;
         let ready = self.receive().await?;
         if ready.kind != "ready"
             || ready.payload["sdk"] != runtime::SDK_VERSION
@@ -637,9 +730,12 @@ fn write_record(
     layer: &crate::layer::LayerInfo,
     record: &Record<'_>,
 ) -> Result<(), Error> {
+    let addons: Vec<&crate::addon::AddonInfo> =
+        options.addons.iter().map(|addon| &addon.info).collect();
     let json = json!({"format":"kai-agent-run/1", "agent":"claude-code", "version":runtime::CLAUDE.version,
         "sdk":runtime::SDK_VERSION,"node":runtime::NODE_VERSION,"layer":layer,"model":options.model,
-        "tools":options.tools,"mock":options.route.mock,"route_port":options.route.port,
+        "tools":options.tools,"addons":addons,"activation":options.activation,
+        "mock":options.route.mock,"route_port":options.route.port,
         "session_id":record.session_id,"turns":record.turns,"cancelled_turn":record.cancelled_turn,
         "vm":record.vm,"outcome":record.outcome,"reason":record.reason });
     write_whole(
@@ -715,23 +811,102 @@ fn environment(mut env: BTreeMap<String, String>, route: &Route) -> BTreeMap<Str
 /// The tools a turn's `system` `init` event names, when `event` is one.
 /// A list that is not a short array of short strings breaks the protocol.
 fn offered_tools(event: &Event) -> Result<Option<Vec<String>>, Error> {
+    init_list(
+        event,
+        "tools",
+        Error::Protocol("init event without a valid tool list"),
+    )
+}
+
+/// The skills a turn's `system` `init` event names, when `event` is one
+/// that names them. A list that is not a short array of short strings
+/// breaks the protocol.
+fn offered_skills(event: &Event) -> Result<Option<Vec<String>>, Error> {
+    if event.payload.get("skills").is_none() {
+        return Ok(None);
+    }
+    init_list(
+        event,
+        "skills",
+        Error::Protocol("init event without a valid skill list"),
+    )
+}
+
+/// The list `field` of a `system` `init` event, or `None` for any other
+/// event; `invalid` when it is not at most 256 strings of 1 to 128 bytes.
+fn init_list(event: &Event, field: &str, invalid: Error) -> Result<Option<Vec<String>>, Error> {
     let payload = &event.payload;
     if event.kind != "event" || payload["type"] != "system" || payload["subtype"] != "init" {
         return Ok(None);
     }
-    let invalid = || Error::Protocol("init event without a valid tool list");
-    let tools = payload["tools"]
-        .as_array()
-        .filter(|tools| tools.len() <= 256)
-        .ok_or_else(invalid)?;
-    tools
-        .iter()
-        .map(|tool| match tool.as_str() {
-            Some(name) if !name.is_empty() && name.len() <= 128 => Ok(name.to_owned()),
-            _ => Err(invalid()),
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+    let Some(names) = payload[field].as_array().filter(|names| names.len() <= 256) else {
+        return Err(invalid);
+    };
+    let mut list = Vec::with_capacity(names.len());
+    for name in names {
+        match name.as_str() {
+            Some(name) if !name.is_empty() && name.len() <= 128 => list.push(name.to_owned()),
+            _ => return Err(invalid),
+        }
+    }
+    Ok(Some(list))
+}
+
+/// The slash commands a user message Claude replays names in its
+/// `<command-name>` tags, when `event` is such a message: empty when it
+/// names none. A tag that holds no plain command breaks the protocol.
+fn replayed_commands(event: &Event) -> Result<Option<Vec<String>>, Error> {
+    let payload = &event.payload;
+    if event.kind != "event" || payload["type"] != "user" || payload["isReplay"] != true {
+        return Ok(None);
+    }
+    let content = &payload["message"]["content"];
+    let texts: Vec<&str> = match content {
+        Value::String(text) => vec![text.as_str()],
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block["type"] == "text")
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+        _ => vec![],
+    };
+    const OPEN: &str = "<command-name>";
+    let invalid = || Error::Protocol("replayed command without a plain name");
+    let mut commands = vec![];
+    for text in texts {
+        let mut rest = text;
+        while let Some(at) = rest.find(OPEN) {
+            let (name, after) = rest[at + OPEN.len()..]
+                .split_once("</command-name>")
+                .ok_or_else(invalid)?;
+            if name.len() > 128 || command(name) != Some(name) {
+                return Err(invalid());
+            }
+            commands.push(name.to_owned());
+            rest = after;
+        }
+    }
+    Ok(Some(commands))
+}
+
+/// Whether Claude took the slash command `activation` starts with in
+/// `turn`, as the user messages it replayed name it: that command, or the
+/// plugin's skill a short one resolved to (`/ponytail` replayed as
+/// `/ponytail:ponytail`).
+pub fn invoked(turn: &Turn, activation: &str) -> bool {
+    let Some(name) = command(activation) else {
+        return false;
+    };
+    let resolved = |invoked: &str| {
+        invoked
+            .split_once(':')
+            .is_some_and(|(_, skill)| format!("/{skill}") == name)
+    };
+    turn.commands_invoked.as_ref().is_some_and(|commands| {
+        commands
+            .iter()
+            .any(|invoked| invoked == name || resolved(invoked))
+    })
 }
 
 /// Whether two tool lists name the same tools, in any order.
@@ -1021,6 +1196,137 @@ mod tests {
         ));
         assert!(!same_tools(&list(&["Bash", "Edit", "Read"]), &list(TOOLS)));
         assert!(same_tools(&[], &[]));
+    }
+    #[test]
+    fn an_activation_is_one_line_that_starts_with_a_plain_slash_command() {
+        assert_eq!(command("/ponytail full"), Some("/ponytail"));
+        assert_eq!(command("/ponytail:ponytail"), Some("/ponytail:ponytail"));
+        for bad in [
+            "",
+            "/",
+            "ponytail full",
+            "/pony tail",
+            "/ponytail full\ninjected",
+            "/pony$tail",
+            " /ponytail",
+        ] {
+            assert_ne!(command(bad), Some("/ponytail"), "{bad:?}");
+        }
+        assert!(command("/pony$tail").is_none() && command("/ponytail\rfull").is_none());
+        assert!(command(&format!("/ponytail {}", "x".repeat(300))).is_none());
+        let route = Route::new("http://localhost:1", None, true).unwrap();
+        let mut options = Options::new("fixture".into(), route, "/fixture".into());
+        options.activation = Some("ponytail full".into());
+        assert!(options.validate().is_err());
+    }
+    /// A user message Claude replays, as the wrapper forwards it.
+    fn replayed(content: Value) -> Value {
+        json!({"type":"user","isReplay":true,"message":{"role":"user","content":content}})
+    }
+    #[tokio::test]
+    async fn the_activation_goes_before_the_first_turn_only_and_its_command_is_recorded() {
+        let (mut session, mut peer) = fixture();
+        session.options.activation = Some("/fixture full".into());
+        session.send("fixture task").await.unwrap();
+        let sent = std::fs::read_to_string(session.options.run_dir.join("prompt-1.md")).unwrap();
+        assert_eq!(sent, "/fixture full\nfixture task");
+        event(
+            &mut peer,
+            2,
+            "event",
+            json!({"type":"system","subtype":"init","tools":[],"skills":["fixture:fixture","other"]}),
+        )
+        .await;
+        event(
+            &mut peer,
+            3,
+            "event",
+            replayed(json!(
+                "<command-message>fixture</command-message>\n<command-name>/fixture</command-name>\n<command-args>full</command-args>"
+            )),
+        )
+        .await;
+        event(
+            &mut peer,
+            4,
+            "result",
+            json!({"subtype":"success","is_error":false}),
+        )
+        .await;
+        for _ in 0..3 {
+            session.next_event().await.unwrap();
+        }
+        let first = &session.turns()[0];
+        assert_eq!(
+            first.skills_offered,
+            Some(vec!["fixture:fixture".into(), "other".into()])
+        );
+        assert_eq!(first.commands_invoked, Some(vec!["/fixture".into()]));
+        assert!(invoked(first, "/fixture full"));
+        assert!(!invoked(first, "/other"));
+        // A short command Claude resolved to a plugin's skill.
+        let resolved = Turn {
+            commands_invoked: Some(vec!["/plugin:fixture".into()]),
+            ..first.clone()
+        };
+        assert!(invoked(&resolved, "/fixture full"));
+        assert!(invoked(&resolved, "/plugin:fixture"));
+        assert!(!invoked(&resolved, "/plugin"));
+
+        // The second turn: no activation, a replay that names no command.
+        session.send("fixture follow-up").await.unwrap();
+        let sent = std::fs::read_to_string(session.options.run_dir.join("prompt-2.md")).unwrap();
+        assert_eq!(sent, "fixture follow-up");
+        for (seq, kind, payload) in [
+            (
+                5,
+                "event",
+                replayed(json!([{"type":"text","text":"fixture follow-up"}])),
+            ),
+            (6, "result", json!({"subtype":"success","is_error":false})),
+        ] {
+            let mut text = json!({"format":runtime::FORMAT,"seq":seq,"kind":kind,"turn":2,
+                "session_id":"fixture-session","payload":payload})
+            .to_string();
+            text.push('\n');
+            peer.write_all(text.as_bytes()).await.unwrap();
+            session.next_event().await.unwrap();
+        }
+        let second = &session.turns()[1];
+        assert_eq!(second.commands_invoked, Some(vec![]));
+        assert_eq!(second.skills_offered, None);
+        session.record("closed", None).unwrap();
+        let saved = saved_record(&session);
+        assert_eq!(saved["activation"], "/fixture full");
+        assert_eq!(saved["addons"], json!([]));
+        assert_eq!(saved["turns"][0]["commands_invoked"], json!(["/fixture"]));
+        assert_eq!(saved["turns"][1]["skills_offered"], Value::Null);
+    }
+    #[tokio::test]
+    async fn a_replayed_command_that_is_no_plain_name_breaks_the_protocol() {
+        for content in [
+            json!("<command-name>/fixture full</command-name>"),
+            json!("<command-name>/fixture"),
+            json!([{"type":"text","text":"<command-name>fixture</command-name>"}]),
+        ] {
+            let (mut session, mut peer) = fixture();
+            session.send("fixture").await.unwrap();
+            event(&mut peer, 2, "event", replayed(content)).await;
+            assert!(session.next_event().await.is_err());
+            assert!(session.failed);
+        }
+        // A user message that is not a replay, such as a tool's result, is
+        // not read for commands.
+        let (mut session, mut peer) = fixture();
+        session.send("fixture").await.unwrap();
+        event(
+            &mut peer,
+            2,
+            "event",
+            json!({"type":"user","message":{"content":"<command-name>/x y</command-name>"}}),
+        )
+        .await;
+        session.next_event().await.unwrap();
     }
     fn saved_record(session: &Session) -> Value {
         serde_json::from_slice(&std::fs::read(session.options.run_dir.join("agent.json")).unwrap())

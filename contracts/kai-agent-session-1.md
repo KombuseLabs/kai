@@ -8,10 +8,19 @@ Each command has `format: "kai-agent-session/1"` and `op`:
 
 | op | Fields | Meaning |
 | --- | --- | --- |
-| start | model, tools | Configure one SDK session; sent once by the host |
+| start | model, tools; plugins | Configure one SDK session; sent once by the host. `plugins` may be absent |
 | send | turn, text | Monotonic turn id starting at 1, text at most 64 KiB |
 | interrupt | turn | Request interruption of the active turn |
 | close | none | Stop the SDK subprocess and end the guest |
+
+`plugins`, when present, lists at most eight distinct directories
+`/opt/kai/addons/<name>`, each an add-on's
+([kai-addon-layer/1](kai-addon-layer-1.md)) on a read-only layer; Claude
+loads each as a local plugin, the one way a skill loads without a setting
+source. Absent, the session has none, as before the field existed.
+Claude replays every user message it takes, as an `event` whose SDK
+message has `isReplay`; a message that ran a slash command names it in a
+`<command-name>` tag, which the host reads.
 
 The model is explicit. The tool list contains only Read, Edit, Write, Bash,
 Glob and Grep; an empty list disables tools. Claude may offer the model
@@ -67,7 +76,11 @@ the frame limit, 2 MiB; a longer one, or one cut off by the end of the
 input, closes the session as `close` would. `kai agent session` exits 0
 when the session closed and its VM ended cleanly, whatever its turns'
 outcomes, which the result events and agent.json give; `kai agent run`
-exits 0 only for an answered turn.
+exits 0 only for an answered turn. Both take `--addon <name>` for each
+add-on, whose `dir` goes into `plugins`, and `--activation`, which the
+host puts on a line of its own before the first turn's text; the `send`
+command carries the text as sent. `kai agent run` with an activation
+exits 0 only when Claude replayed its command.
 
 The [example](kai-agent-session-1.example.json) is a ready event. The VM
 integration test checks the actual wrapper's first event against it.

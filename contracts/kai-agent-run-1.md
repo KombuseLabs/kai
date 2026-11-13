@@ -14,11 +14,13 @@ ended.
 | agent, version, sdk, node | Exact runtime versions |
 | layer | The runtime layer's record, [kai-agent-layer/1](kai-agent-layer-1.md), as validated before the VM started |
 | model, tools | Explicitly selected model and the tools asked for; Claude may offer fewer (a turn's `tools_offered`) |
+| addons | The add-ons installed: each one's record, [kai-addon-layer/1](kai-addon-layer-1.md), as validated before the VM started. Its layer was mounted and its directory given to Claude as a local plugin. Empty without add-ons |
+| activation | The slash command and its arguments put on a line of their own before the first turn's text, such as `/ponytail full`, or null |
 | mock, route_port | Fake mode and loopback port; never the credential |
 | session_id | SDK session id, or null before one was observed |
 | reason | Safe failure reason, or null |
 | outcome | `closed`, `failed` or `dropped`; independent of turn outcomes |
-| turns | Completed turns, ordered: id, outcome, prompt_sha256, tools_offered and SDK result |
+| turns | Completed turns, ordered: id, outcome, prompt_sha256, tools_offered, skills_offered, commands_invoked and SDK result |
 | cancelled_turn | Outstanding turn id at closure, or null |
 | vm | VM run record when obtained; null if unavailable |
 
@@ -35,6 +37,23 @@ not do, offered only Bash, Read and Edit of those asked for. A tool the
 model called that was not offered came back to it as an error. A
 permission request Claude made, for an allowed tool too, was denied and
 is in the SDK result's `permission_denials`.
+
+An add-on's three facts stay apart:
+
+- **Installed:** it is in `addons`. That alone says nothing of Claude.
+- **Discoverable:** a turn's `skills_offered`, the skills the same `init`
+  event names, holds the add-on's skill as `<plugin>:<skill>` (Ponytail's
+  as `ponytail:ponytail`); null when the turn brought no such event.
+- **Invoked:** a turn's `commands_invoked` holds the slash command Claude
+  took, as the user messages it replays name it in their `<command-name>`
+  (`/ponytail:ponytail` for `/ponytail full`: the plugin's skill the short
+  command resolved to); empty when it took none, null when it replayed no
+  user message.
+
+A slash command Claude does not know is not an error: its text goes to the
+model as it is, and the turn is answered. `commands_invoked` is then
+empty, and kai warns when that happens to the activation. Neither field
+says that the model followed the skill.
 
 Abrupt process death may leave no final agent.json; the event log then
 remains incomplete evidence, not success.

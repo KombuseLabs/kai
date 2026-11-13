@@ -64,6 +64,12 @@ struct SessionArgs {
     /// Use a local fake model endpoint with a fixed dummy credential
     #[arg(long)]
     mock: bool,
+    /// An add-on fetched before with `kai agent fetch --addon`: its layer is mounted and its directory given to Claude as a local plugin; may be given several times
+    #[arg(long = "addon", value_name = "NAME", value_parser = clap::builder::PossibleValuesParser::new(::agent::addon::ADDONS.iter().map(|addon| addon.name)))]
+    addons: Vec<String>,
+    /// A slash command and its arguments, put on a line of its own before the first turn's text, such as "/ponytail full"; `agent run` fails when Claude does not take it
+    #[arg(long, value_name = "TEXT")]
+    activation: Option<String>,
 }
 #[derive(Args)]
 struct RunArgs {
@@ -133,7 +139,14 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
     } else {
         session_args.tools.split(',').map(str::to_owned).collect()
     };
+    options.activation = session_args.activation.clone();
     let passed = context.runtime.block_on(async {
+        for name in &session_args.addons {
+            let addon = ::agent::addon::named(name).expect("clap admits only known add-ons");
+            options
+                .addons
+                .push(::agent::addon::cached(addon, &cache).await?);
+        }
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         tokio::select! {
@@ -186,6 +199,7 @@ async fn execute(
     prompt: Option<&str>,
 ) -> anyhow::Result<bool> {
     let run_dir = options.run_dir.clone();
+    let activation = options.activation.clone();
     let mut session = ::agent::session::Session::start(cache, options).await?;
     let passed;
     if let Some(prompt) = prompt {
@@ -199,10 +213,19 @@ async fn execute(
                 break;
             }
         }
-        passed = session
-            .turns()
-            .last()
-            .is_some_and(|turn| turn.outcome == "answered");
+        let turn = session.turns().last();
+        // An activation Claude did not take went to the model as text: the
+        // turn may be answered, but it is not the turn that was asked for.
+        let activated = match (&activation, turn) {
+            (Some(activation), Some(turn)) => ::agent::session::invoked(turn, activation),
+            _ => true,
+        };
+        if !activated {
+            eprintln!(
+                "kai: Claude did not take the activation's slash command; agent.json records the commands it took"
+            );
+        }
+        passed = activated && turn.is_some_and(|turn| turn.outcome == "answered");
     } else {
         println!(
             "{}",

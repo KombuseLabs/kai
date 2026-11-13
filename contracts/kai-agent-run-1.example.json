@@ -26,6 +26,8 @@
     "Glob",
     "Grep"
   ],
+  "addons": [],
+  "activation": null,
   "mock": true,
   "route_port": 1,
   "session_id": null,
