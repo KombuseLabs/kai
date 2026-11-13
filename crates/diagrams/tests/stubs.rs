@@ -186,6 +186,8 @@ fn the_types_of_docs_qualify_make_the_round_trip() {
     assert_eq!(
         names,
         [
+            "Access",
+            "ActorAccess",
             "Finding",
             "Form",
             "Issue",

@@ -1,12 +1,13 @@
 //! `kai ticket`: the tickets in the store, and whether kai may use them.
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use clap::{Args, Subcommand};
-use types::{IssueState, Outcome, RepoName, Ticket, Verdict};
+use types::{ActorAccess, IssueState, Outcome, RepoName, Ticket, Verdict};
 
 use super::{Context, Failure};
 use crate::settings;
@@ -48,10 +49,10 @@ pub(crate) fn run(command: &TicketCommand, context: &Context<'_>) -> Result<(), 
     if let TicketCommand::Deps(args) = command {
         return deps(args, context);
     }
-    let tickets = tickets(&context.store)?;
+    let (tickets, access) = tickets(&context.store)?;
     match command {
         TicketCommand::List => print_list(&tickets),
-        TicketCommand::Qualify => print_qualify(&tickets),
+        TicketCommand::Qualify => print_qualify(&tickets, &access),
         TicketCommand::Deps(_) => {}
     }
     Ok(())
@@ -70,7 +71,7 @@ fn target(args: &DepsArgs, context: &Context<'_>) -> Result<(RepoName, String), 
         return Ok((repo.clone(), sha.to_ascii_lowercase()));
     }
     let number = args.number.unwrap_or_default();
-    let tickets = tickets(&context.store)?;
+    let (tickets, access) = tickets(&context.store)?;
     let found: Vec<&Ticket> = tickets
         .iter()
         .filter(|t| t.issue.number == number)
@@ -88,7 +89,7 @@ fn target(args: &DepsArgs, context: &Context<'_>) -> Result<(RepoName, String), 
             )));
         }
     };
-    let qualification = ::engine::qualify::qualify(ticket);
+    let qualification = ::engine::qualify::qualify(ticket, board_access(&access, ticket));
     if qualification.verdict() == Verdict::Refused {
         let why: Vec<String> = qualification
             .findings
@@ -221,9 +222,14 @@ fn shell_word(word: &[u8]) -> Vec<u8> {
     quoted
 }
 
-/// Every issue in the store, read as a ticket; a hint on standard error when there is none.
-fn tickets(store_path: &Path) -> anyhow::Result<Vec<Ticket>> {
-    let tickets: Vec<Ticket> = super::store::open(store_path)?
+/// What GitHub said of the access of each board's label actors.
+type BoardAccess = BTreeMap<RepoName, Vec<ActorAccess>>;
+
+/// Every issue in the store, read as a ticket, and the access of each
+/// board's label actors; a hint on standard error when there is no ticket.
+fn tickets(store_path: &Path) -> anyhow::Result<(Vec<Ticket>, BoardAccess)> {
+    let store = super::store::open(store_path)?;
+    let tickets: Vec<Ticket> = store
         .issues()
         .context("cannot read the store")?
         .iter()
@@ -235,7 +241,20 @@ fn tickets(store_path: &Path) -> anyhow::Result<Vec<Ticket>> {
             store_path.display()
         );
     }
-    Ok(tickets)
+    let mut access = BoardAccess::new();
+    for ticket in &tickets {
+        let board = &ticket.issue.repo;
+        if !access.contains_key(board) {
+            let answers = store.access(board).context("cannot read the store")?;
+            access.insert(board.clone(), answers);
+        }
+    }
+    Ok((tickets, access))
+}
+
+/// The access of the label actors of `ticket`'s board.
+fn board_access<'a>(access: &'a BoardAccess, ticket: &Ticket) -> &'a [ActorAccess] {
+    access.get(&ticket.issue.repo).map_or(&[], Vec::as_slice)
 }
 
 /// One line per ticket: issue, state, labels, title, in columns.
@@ -267,7 +286,7 @@ fn print_list(tickets: &[Ticket]) {
 
 /// Per ticket its verdict, and below it each rule that failed or was not
 /// checked, with why; then the count of each verdict.
-fn print_qualify(tickets: &[Ticket]) {
+fn print_qualify(tickets: &[Ticket], access: &BoardAccess) {
     let issue_width = tickets
         .iter()
         .map(|t| t.issue.to_string().len())
@@ -275,7 +294,7 @@ fn print_qualify(tickets: &[Ticket]) {
         .unwrap_or(0);
     let (mut qualified, mut refused, mut undecided) = (0, 0, 0);
     for ticket in tickets {
-        let qualification = ::engine::qualify::qualify(ticket);
+        let qualification = ::engine::qualify::qualify(ticket, board_access(access, ticket));
         let verdict = qualification.verdict();
         match verdict {
             Verdict::Qualified => qualified += 1,

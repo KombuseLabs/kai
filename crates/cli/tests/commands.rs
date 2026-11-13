@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use store::Store;
-use types::{Access, Issue, IssueId, IssueState};
+use types::{Access, Issue, IssueId, IssueState, LabelEvent};
 
 /// A fresh directory of the test's own, outside the repository so that no
 /// `.env` or `kai.toml` above it is found.
@@ -114,6 +114,60 @@ fn qualify_gives_each_verdict_and_why() {
     assert!(out.contains("failed       no-code-block: "), "{out}");
     assert!(
         out.ends_with("0 qualified, 2 refused, 1 undecided\n"),
+        "{out}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn qualify_judges_the_trust_gate_by_the_access_the_store_keeps() {
+    let dir = dir("qualify-gate");
+    let board = "example-org/example-board".parse().unwrap();
+    let put_on_by = |number: u64, login: &str| {
+        let mut issue = issue(number, &["kai"], "Count the widgets.");
+        issue.label_events = vec![LabelEvent {
+            label: "kai".to_owned(),
+            actor: Some(login.to_owned()),
+            at: "2026-01-02T03:00:00Z".to_owned(),
+        }];
+        issue
+    };
+    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    store
+        .record_sync(
+            &board,
+            &[
+                put_on_by(1, "example-maintainer"),
+                put_on_by(2, "example-triager"),
+            ],
+            None,
+            false,
+        )
+        .unwrap();
+    let known = |role: &str| Access::Known {
+        permission: "write".to_owned(),
+        role: Some(role.to_owned()),
+    };
+    store
+        .record_access(
+            &board,
+            &[
+                ("example-maintainer".to_owned(), known("maintain")),
+                ("example-triager".to_owned(), known("triage")),
+            ],
+        )
+        .unwrap();
+    drop(store);
+
+    let output = kai(&dir, &["ticket", "qualify"], &[]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    let first = out.split("#2").next().unwrap();
+    assert!(first.contains("#1  undecided"), "{out}");
+    assert!(!first.contains("trust-gate"), "{out}");
+    assert!(out.contains("#2  refused  "), "{out}");
+    assert!(
+        out.contains("failed       trust-gate: `kai` was put on by example-triager"),
         "{out}"
     );
     std::fs::remove_dir_all(dir).unwrap();

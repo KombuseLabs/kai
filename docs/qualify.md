@@ -68,7 +68,17 @@ classDiagram
 
     class qualify {
         <<function>>
-        +qualify(ticket: &Ticket) Qualification
+        +qualify(ticket: &Ticket, access: &[ActorAccess]) Qualification
+    }
+    class ActorAccess {
+        +String login
+        +Access access
+        +String observed_at
+    }
+    class Access {
+        <<enumeration>>
+        Known(permission: String, role: Option~String~)
+        Unknown(String)
     }
 
     class Qualification {
@@ -116,6 +126,8 @@ classDiagram
     Ticket "1" *-- "*" LabelEvent
     Ticket --> IssueState
     qualify ..> Ticket : reads
+    qualify ..> ActorAccess : reads, the board's
+    ActorAccess --> Access
     qualify ..> Qualification : returns
     Qualification "1" *-- "*" Finding
     Finding --> Rule
@@ -133,7 +145,7 @@ events are cut off, the latest are the ones missing.
 ## What `qualify` does
 
 ```mermaid
-%% drawn from engine::qualify::qualify#da99814f, engine::qualify::form_rules#90473c16
+%% drawn from engine::qualify::qualify#98bb06cc, engine::qualify::form_rules#90473c16
 flowchart TD
     T([Ticket]) --> I["Issue rules, always applied:<br/>label, trust-gate, open"]
     I --> F{"Is the body the<br/>kai ticket form?"}
@@ -147,7 +159,7 @@ flowchart TD
 | Rule | Pass when | Fail when | Not checked when |
 | --- | --- | --- | --- |
 | `label` | the issue has the label `kai` | it has not, and every label was fetched | it has not among the 100 fetched, and it has more |
-| `trust-gate` | | | always, for now: who put the label on is not looked up |
+| `trust-gate` | the account that put `kai` on last has the role `admin`, `maintain` or `write` (else, without a role, the permission `admin` or `write`), as GitHub said when asked | it has another role (`triage`, `read`, …), or it no longer exists | the issue has no `kai` label; not every labeled event was fetched; no event that put `kai` on was fetched; that account's access was not asked, or GitHub did not tell it |
 | `open` | the issue is open | it is closed | |
 | `form` | the body has the form's `### Instruction` heading | it has not | |
 | `instruction` | the instruction is not blank | it is empty or blank | |
@@ -170,9 +182,14 @@ flowchart TD
     B -- no --> OK([Qualified])
 ```
 
-A rule that was not checked is never counted as met. Since `trust-gate`
-and `at-ref` are not checked for any ticket yet, every ticket is refused
-or undecided; none is qualified until both are built.
+A rule that was not checked is never counted as met. Since `at-ref` is
+not checked for any ticket yet, every ticket is refused or undecided; none
+is qualified until it is built.
+
+The trust gate judges the access the account has **when it was asked**,
+not when it put the label on: an account that lost write access since
+then fails, one that gained it passes. The last `kai` event counts, so
+whoever puts the label on again after a maintainer is the one judged.
 
 ## How kai uses it
 
@@ -180,14 +197,14 @@ or undecided; none is qualified until both are built.
 `--full` it also removes those GitHub no longer returns, and with
 `--actor-permissions` it asks GitHub what access each account that put a
 label on has to the board now, and keeps the answers: the data the trust
-gate will be judged on. `trust-gate` does not read them yet. `kai ticket
-qualify` reads the issues, makes each a ticket and judges it. Qualifying
+gate is judged on. `kai ticket qualify` reads the issues and each board's
+answers, makes each issue a ticket and judges it. Qualifying
 needs no network: it works on what the last sync fetched, and `kai store
 status` says when that was.
 
 ```mermaid
 %% checked against crates/store, crates/github, crates/engine
-%% drawn from cli::cmd::github::sync#1465a1e2, cli::cmd::ticket::print_qualify#bfc62412
+%% drawn from cli::cmd::github::sync#1465a1e2, cli::cmd::ticket::print_qualify#87a2969f
 sequenceDiagram
     actor You
     participant cli as kai (cli)
@@ -217,10 +234,12 @@ sequenceDiagram
     You->>cli: kai ticket qualify
     cli->>store: issues()
     store-->>cli: every issue
+    cli->>store: access(board), once per board
+    store-->>cli: what GitHub said of each label actor
     loop each issue
         cli->>ticket: from_issue(issue)
         ticket-->>cli: Ticket, the body read as the form
-        cli->>engine: qualify(ticket)
+        cli->>engine: qualify(ticket, the board's access)
         engine-->>cli: Qualification
         Note over cli: prints the verdict and each finding that did not pass
     end

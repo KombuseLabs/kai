@@ -5,8 +5,14 @@
 //!
 //! What static qualification cannot know is reported as not checked, never
 //! as met, so that no ticket is qualified on a rule nobody applied. Today
-//! that is the trust gate (who put the `kai` label on) and whether the
-//! repository has the commit and the hidden tests.
+//! that is whether the repository has the commit and the hidden tests, and
+//! the trust gate when the access of whoever put the `kai` label on is not
+//! known.
+//!
+//! The trust gate reads the board's [`ActorAccess`]es, what GitHub said of
+//! each label actor's access (`kai github sync --actor-permissions`): the
+//! label counts only when the account that put it on last has write access
+//! now.
 //!
 //! ```
 //! use engine::qualify::qualify;
@@ -24,7 +30,7 @@
 //!     updated_at: "2026-01-02T03:04:05Z".to_owned(),
 //!     form: Some(Form::default()),
 //! };
-//! let qualification = qualify(&ticket);
+//! let qualification = qualify(&ticket, &[]);
 //! assert_eq!(qualification.verdict(), Verdict::Refused);
 //! let failed: Vec<Rule> = qualification
 //!     .findings
@@ -36,22 +42,22 @@
 //! # Ok::<(), types::ParseRepoNameError>(())
 //! ```
 
-use types::{Finding, Form, IssueState, Qualification, RepoName, Rule, Ticket};
+use types::{
+    Access, ActorAccess, Finding, Form, IssueState, Qualification, RepoName, Rule, Ticket,
+};
 
 /// The label that offers an issue to kai.
 pub const LABEL: &str = "kai";
 
-/// Applies the static rules to `ticket`. The rules on the form's fields
-/// apply only when the body is the form.
-pub fn qualify(ticket: &Ticket) -> Qualification {
-    let mut findings = vec![
-        label(ticket),
-        Finding::not_checked(
-            Rule::TrustGate,
-            format!("who put the `{LABEL}` label on is not checked yet"),
-        ),
-        open(ticket),
-    ];
+/// The roles that may offer an issue to kai: those that can write to the
+/// board.
+const WRITERS: [&str; 3] = ["admin", "maintain", "write"];
+
+/// Applies the static rules to `ticket`, with `access`, what GitHub said of
+/// the access of the label actors of the ticket's board. The rules on the
+/// form's fields apply only when the body is the form.
+pub fn qualify(ticket: &Ticket, access: &[ActorAccess]) -> Qualification {
+    let mut findings = vec![label(ticket), trust_gate(ticket, access), open(ticket)];
     match &ticket.form {
         None => findings.push(Finding::fail(
             Rule::Form,
@@ -79,6 +85,61 @@ fn label(ticket: &Ticket) -> Finding {
         )
     } else {
         Finding::fail(Rule::Label, format!("the issue has no `{LABEL}` label"))
+    }
+}
+
+/// Whether the account that put the `kai` label on last may write to the
+/// board, as GitHub said when asked. Not checked when that cannot be told:
+/// the later labeled events were not fetched, or the account's access was
+/// not asked or not told.
+fn trust_gate(ticket: &Ticket, access: &[ActorAccess]) -> Finding {
+    let not_checked = |why: String| Finding::not_checked(Rule::TrustGate, why);
+    if !ticket.labels.iter().any(|label| label == LABEL) {
+        return not_checked(format!("the issue has no `{LABEL}` label to check"));
+    }
+    if !ticket.label_events_complete {
+        return not_checked(format!(
+            "not every labeled event was fetched, so who put `{LABEL}` on last is not known"
+        ));
+    }
+    let Some(event) = ticket.label_events.iter().rev().find(|e| e.label == LABEL) else {
+        return not_checked(format!("no event that put `{LABEL}` on was fetched"));
+    };
+    let Some(login) = &event.actor else {
+        return Finding::fail(
+            Rule::TrustGate,
+            format!("`{LABEL}` was put on by an account that no longer exists"),
+        );
+    };
+    match access.iter().find(|actor| &actor.login == login) {
+        None => not_checked(format!(
+            "the access of {login}, who put `{LABEL}` on, was not asked; \
+             `kai github sync --actor-permissions` asks it"
+        )),
+        Some(ActorAccess {
+            access: Access::Unknown(why),
+            ..
+        }) => not_checked(format!(
+            "GitHub did not tell the access of {login}, who put `{LABEL}` on: {why}"
+        )),
+        Some(ActorAccess {
+            access: Access::Known { permission, role },
+            observed_at,
+            ..
+        }) => {
+            let role = role.as_deref().unwrap_or(permission);
+            if WRITERS.contains(&role) {
+                Finding::pass(Rule::TrustGate)
+            } else {
+                Finding::fail(
+                    Rule::TrustGate,
+                    format!(
+                        "`{LABEL}` was put on by {login}, whose access is `{role}`, \
+                         not write (asked {observed_at})"
+                    ),
+                )
+            }
+        }
     }
 }
 

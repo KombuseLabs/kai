@@ -207,8 +207,8 @@ changed since the last sync into the store, `.kai/store.sqlite` beside
 removes those GitHub no longer returns. `--actor-permissions` also asks
 GitHub what access each account that put a label on has to the board now,
 one request per account, and keeps the answer, or GitHub's words when it
-does not tell; `kai store status` shows them. The rule `trust-gate` does
-not read them yet. It never writes to GitHub. The
+does not tell; `kai store status` shows them, and the rule `trust-gate`
+judges by them. It never writes to GitHub. The
 token is `KAI_GITHUB_TOKEN`, else what `gh auth token` prints; a read-only
 token is enough.
 
@@ -220,12 +220,14 @@ text. A sync fetches at most 100 labels and 100 labeled events of an
 issue, and the store records whether that was all of them.
 
 `kai ticket qualify` judges each ticket from what GitHub said: refused when
-a rule fails (no `kai` label, a closed issue, not the form, an empty
+a rule fails (no `kai` label, the label put on last by an account
+without write access to the board, a closed issue, not the form, an empty
 instruction, a code block in it, a repository or ref that is malformed, no
-hidden tests), undecided while a rule is not checked yet (who put the
-label on; whether the repository has the commit and the hidden tests), and
-qualified only when every rule was checked and met. So today no ticket is
-qualified.
+hidden tests), undecided while a rule is not checked (whether the
+repository has the commit and the hidden tests, for every ticket yet; who
+put the label on, while that account's access was not asked or GitHub did
+not tell it), and qualified only when every rule was checked and met. So
+today no ticket is qualified.
 
 ### microVMs
 
