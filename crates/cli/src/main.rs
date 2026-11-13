@@ -8,6 +8,8 @@
 //!   what GitHub said: qualified, refused, or undecided while a rule is not
 //!   checked.
 //! - `kai store reset` empties the store; the next sync fetches everything.
+//! - `kai study estimate` says from a study file's size what the study can
+//!   see and its worst-case token use; it spends nothing.
 //! - `kai vm doctor` says what running a microVM needs on this machine and
 //!   what fixes each gap; `kai vm fetch` downloads the pinned Firecracker
 //!   and guest kernel into kai's cache and checks them; `kai vm run` runs

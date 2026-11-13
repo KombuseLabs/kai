@@ -10,6 +10,7 @@
 
 mod qualification;
 mod repo;
+pub mod study;
 mod ticket;
 
 pub use qualification::{Finding, Outcome, Qualification, Rule, Verdict};
