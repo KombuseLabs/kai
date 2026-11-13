@@ -8,7 +8,8 @@ a local SQLite store, and `kai ticket qualify` says from what GitHub said
 whether kai may use each one. `kai vm run` runs one command in a fresh
 Firecracker microVM, and `kai ticket deps` fetches and builds a ticket's
 repository and dependencies in microVMs. `kai agent fetch` packs a pinned
-Claude/SDK/Node runtime as a read-only layer. `kai agent run` sends one
+Claude/SDK/Node runtime as a read-only layer, and with `--addon` a pinned
+skill as one of its own. `kai agent run` sends one
 prompt, and `kai agent session` exchanges interactive commands/events with
 that runtime in a microVM. These paths are tested against a local fake
 model; no ticket's check or real-model workflow has been verified yet.
@@ -20,7 +21,7 @@ model; no ticket's check or real-model workflow has been verified yet.
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai`. `main.rs` starts up, `settings.rs` reads `kai.toml`, `src/cmd/` has a module per command group |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library: the static qualify rules; `deps`, a ticket's repository and dependencies fetched and built in microVMs as two layers; never depends on `cli` |
-| `crates/agent/` | pinned agent runtimes and interactive sessions; `runtime` pins Claude/SDK/Node, `layer` checks, publishes and recovers the cache, `session` owns the host protocol, `wrapper.mjs` is its guest peer; depends on `vm` and `helpers`, never on `engine` or `cli` |
+| `crates/agent/` | pinned agent runtimes and interactive sessions; `runtime` pins Claude/SDK/Node, `addon` pins add-ons (Ponytail's skill), `layer` checks, publishes and recovers the cache of both, `session` owns the host protocol, `wrapper.mjs` is its guest peer; depends on `vm` and `helpers`, never on `engine` or `cli` |
 | `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |

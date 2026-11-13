@@ -16,12 +16,18 @@ pub(crate) struct AgentArgs {
 }
 #[derive(Subcommand)]
 enum AgentCommand {
-    /// Fetch and verify the pinned Claude, SDK and Node runtime layer
-    Fetch,
+    /// Fetch and verify the pinned Claude, SDK and Node runtime layer, or with --addon an add-on's layer
+    Fetch(FetchArgs),
     /// Run one prompt in a fresh microVM and print its answer
     Run(RunArgs),
     /// Exchange JSON input commands and ordered output events with a fresh microVM; a refused command is a `refused` line and the session goes on; exits 0 when the session closed and its VM ended cleanly, whatever its turns' outcomes, which the result events and agent.json give
     Session(SessionArgs),
+}
+#[derive(Args)]
+struct FetchArgs {
+    /// Instead of the runtime: the add-on of this name, its pinned files packed as a read-only layer in a directory of its name under /opt/kai/addons/
+    #[arg(long, value_name = "NAME", value_parser = clap::builder::PossibleValuesParser::new(::agent::addon::ADDONS.iter().map(|addon| addon.name)))]
+    addon: Option<String>,
 }
 #[derive(Args)]
 struct SessionArgs {
@@ -71,7 +77,10 @@ struct RunArgs {
 pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Failure> {
     let cache =
         settings::vm_cache(args.cache.as_deref(), context.config).map_err(Failure::Usage)?;
-    if matches!(args.command, AgentCommand::Fetch) {
+    if let AgentCommand::Fetch(FetchArgs { addon: Some(name) }) = &args.command {
+        return fetch_addon(name, &cache, context);
+    }
+    if matches!(args.command, AgentCommand::Fetch(_)) {
         let fetched = context
             .runtime
             .block_on(::agent::runtime::fetch(&cache))
@@ -93,7 +102,7 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
     let (session_args, prompt) = match &args.command {
         AgentCommand::Run(run) => (&run.session, Some(run.prompt.as_str())),
         AgentCommand::Session(session) => (session, None),
-        AgentCommand::Fetch => unreachable!(),
+        AgentCommand::Fetch(_) => unreachable!(),
     };
     if prompt.is_some_and(|text| text.len() > ::agent::session::MAX_PROMPT) {
         return Err(Failure::Usage(anyhow::anyhow!("prompt exceeds 64 KiB")));
@@ -138,6 +147,37 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
     } else {
         Err(Failure::Status(1))
     }
+}
+
+/// `kai agent fetch --addon <name>`: the add-on's layer, made or checked.
+fn fetch_addon(name: &str, cache: &Path, context: &Context<'_>) -> Result<(), Failure> {
+    let addon = ::agent::addon::named(name).ok_or_else(|| {
+        let known: Vec<&str> = ::agent::addon::ADDONS.iter().map(|a| a.name).collect();
+        Failure::Usage(anyhow::anyhow!(
+            "no add-on `{name}`; kai knows {}",
+            known.join(", ")
+        ))
+    })?;
+    let fetched = context
+        .runtime
+        .block_on(::agent::addon::fetch(addon, cache))
+        .with_context(|| format!("cannot fetch the add-on {name}"))?;
+    println!(
+        "{} add-on {name}: {}",
+        if fetched.reused {
+            "verified"
+        } else {
+            "prepared"
+        },
+        fetched.file.display()
+    );
+    if let Some((path, reason)) = fetched.quarantined {
+        eprintln!(
+            "kai: invalid add-on layer moved to {}: {reason}",
+            path.display()
+        );
+    }
+    Ok(())
 }
 
 async fn execute(

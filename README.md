@@ -23,6 +23,7 @@ cargo run -- vm image list          # the recipes, and which images are built
 cargo run -- vm run --image rust -- cargo --version   # one command in a fresh microVM
 cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched and built in microVMs
 cargo run -- agent fetch            # the pinned Claude/SDK/Node runtime for a microVM
+cargo run -- agent fetch --addon ponytail   # Ponytail's skill, pinned, as a read-only layer
 ```
 
 ### Tickets
@@ -136,6 +137,18 @@ rebuilt; interrupted builds recover. The whole runtime tuple and wrapper
 bytes determine the cache identity. `agent run` and `agent session` only
 use a previously fetched layer and never download implicitly.
 
+`kai agent fetch --addon ponytail` packs an add-on the same way, as a layer
+of its own: Ponytail's `ponytail` skill and the repository's MIT licence,
+each file pinned by its commit and SHA-256 in
+[the add-on pins](crates/agent/src/addon.rs), under
+`/opt/kai/addons/ponytail/`, root-owned with mode 0644. With a manifest kai
+writes, `.claude-plugin/plugin.json`, the directory is a local plugin of
+Claude Code, the skill at `skills/ponytail/SKILL.md`. Beside the layer,
+its record (`kai-addon-layer/1`) names the pin, the digest of the layer's
+inventory (what it holds) and the layer's own digest (its bytes); see
+[kai-addon-layer/1](contracts/kai-addon-layer-1.md). No session gives an
+add-on to Claude yet; `--layer` only puts it into the VM.
+
 `kai agent run --model <id> --tree ./fixture --tree-out ./after -- "<prompt>"`
 runs one turn. `kai agent session --model <id> --tree ./fixture` accepts
 newline-delimited JSON commands on stdin and emits ordered JSON events on
@@ -205,6 +218,8 @@ built without its init, and `kai vm doctor` says so.
   `kai ticket deps` makes.
 - A real-model run through the external proxy. Sessions and tool calls
   are tested with a fake API only.
+- An add-on given to the agent in a session: which skill it loads, how it
+  is invoked, and evidence that it reached the model.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 

@@ -7,6 +7,8 @@ files with another program. One page per format.
 | --- | --- | --- |
 | [kai-agent-session/1](kai-agent-session-1.md) | `events.jsonl`, host/guest stream | `agent` and its guest wrapper |
 | [kai-agent-run/1](kai-agent-run-1.md) | `agent.json` | `agent` |
+| [kai-agent-layer/1](kai-agent-layer-1.md) | `layer.json` of an agent's layer in the VM cache | `kai agent fetch` (crates/agent) |
+| [kai-addon-layer/1](kai-addon-layer-1.md) | `layer.json` of an add-on's layer in the VM cache | `kai agent fetch --addon` (crates/agent) |
 | [kai-vm-run/1](kai-vm-run-1.md) | `result.json` of a microVM run | `kai vm run` (crates/vm) |
 
 These rules hold for every format:

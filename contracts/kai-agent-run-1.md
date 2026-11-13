@@ -12,7 +12,7 @@ ended.
 | --- | --- |
 | format | `kai-agent-run/1` |
 | agent, version, sdk, node | Exact runtime versions |
-| layer | Validated layer identity, hashes, length, packing and runtime members |
+| layer | The runtime layer's record, [kai-agent-layer/1](kai-agent-layer-1.md), as validated before the VM started |
 | model, tools | Explicitly selected model and the tools asked for; Claude may offer fewer (a turn's `tools_offered`) |
 | mock, route_port | Fake mode and loopback port; never the credential |
 | session_id | SDK session id, or null before one was observed |

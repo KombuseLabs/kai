@@ -1,5 +1,6 @@
-//! `kai ticket list`, `kai ticket qualify` and `kai github sync`, run as a
-//! program on a store of invented tickets. No network: the sync tests fail
+//! `kai ticket list`, `kai ticket qualify`, `kai github sync` and the
+//! usage of `kai agent fetch --addon`, run as a program, the first three
+//! on a store of invented tickets. No network: the sync tests fail
 //! before a request, or at a port on this machine that nothing listens on.
 
 use std::path::{Path, PathBuf};
@@ -299,5 +300,31 @@ fn deps_takes_a_repository_and_a_full_sha_instead_of_a_ticket() {
         Some(2),
         "a repository without a ref: {output:?}"
     );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn agent_fetch_takes_only_an_addon_kai_knows() {
+    let dir = dir("addon-name");
+    let cache = dir.join("cache");
+    let output = kai(
+        &dir,
+        &[
+            "agent",
+            "fetch",
+            "--addon",
+            "invented",
+            "--cache",
+            cache.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        stderr(&output).contains("[possible values: ponytail]"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!cache.exists());
     std::fs::remove_dir_all(dir).unwrap();
 }

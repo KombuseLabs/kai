@@ -35,7 +35,12 @@
 //! - **A killed fetch is fetched again.** It leaves a part of an entry, or
 //!   of a download, that the next fetch removes (`helpers::fs::remove_parts`):
 //!   holding the lock, it knows that no builder is at work.
+//!
+//! An add-on's layer ([`crate::addon`]) goes the same way, under `addons/`
+//! with a JSON of its own: one path publishes both, given the files an
+//! entry holds, its key and how its JSON is written and checked.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -44,6 +49,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use helpers::fs::{Lock, PartDir, remove_parts, sync_dir};
 use helpers::hash::{sha256_bytes, sha256_file_async};
 use helpers::process::{self, Failed};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -132,13 +138,20 @@ pub struct LayerInfo {
     pub members: Vec<Member>,
 }
 
-/// What [`fetch`] did, and where the layer is.
+impl Record for LayerInfo {
+    fn layer(&self) -> (&str, u64) {
+        (&self.layer, self.layer_len)
+    }
+}
+
+/// What [`fetch`] did, and where the layer is; `R` is the entry's JSON,
+/// an agent's [`LayerInfo`] or an add-on's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Fetched {
+pub struct Fetched<R = LayerInfo> {
     /// The layer, for `--layer`.
     pub file: PathBuf,
     /// Its JSON.
-    pub info: LayerInfo,
+    pub info: R,
     /// Whether the entry was there and checked out; then nothing was
     /// downloaded or built.
     pub reused: bool,
@@ -178,9 +191,20 @@ pub enum Step {
 /// Why there is no layer.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The agent's path is not one a layer can hold.
-    #[error("the agent's path `{0}` is not an absolute path under {AGENTS_PREFIX} of plain names")]
-    Path(String),
+    /// A file's path is not one a layer of its kind can hold.
+    #[error("the path `{path}` is not an absolute path under {prefix} of plain names")]
+    Path {
+        /// The path.
+        path: String,
+        /// The directory every file of the layer must lie under.
+        prefix: String,
+    },
+    /// A pin is not one kai can fetch, and why; nothing was downloaded.
+    #[error("{0}")]
+    Pin(String),
+    /// The cache holds no valid layer; what to run to make one.
+    #[error("{0}")]
+    NotFetched(String),
     /// The download failed or did not match its pin.
     #[error(transparent)]
     Vm(#[from] vm::Error),
@@ -194,9 +218,7 @@ pub enum Error {
     },
     /// The layer `mksquashfs` made is not what it should be; nothing was
     /// published.
-    #[error(
-        "the packed layer is not the agent's program alone, root's: {0}; nothing was published"
-    )]
+    #[error("the packed layer is not its pinned files alone, root's: {0}; nothing was published")]
     Packed(String),
     /// Reading or writing the cache failed.
     #[error("{}: {source}", path.display())]
@@ -219,8 +241,17 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {
 /// [`AGENTS_PREFIX`], each name letters, digits, `.`, `_` or `-`, and not
 /// `.` or `..`.
 pub fn components(path: &str) -> Result<Vec<&str>, Error> {
-    let bad = || Error::Path(path.to_owned());
-    if !path.starts_with(AGENTS_PREFIX) {
+    components_under(path, AGENTS_PREFIX)
+}
+
+/// The names of `path` below `/`, as [`components`] has them, for a path
+/// under `prefix`, an absolute directory that ends with `/`.
+pub fn components_under<'p>(path: &'p str, prefix: &str) -> Result<Vec<&'p str>, Error> {
+    let bad = || Error::Path {
+        path: path.to_owned(),
+        prefix: prefix.to_owned(),
+    };
+    if !prefix.starts_with('/') || !prefix.ends_with('/') || !path.starts_with(prefix) {
         return Err(bad());
     }
     let names: Vec<&str> = path[1..].split('/').collect();
@@ -240,6 +271,16 @@ pub fn components(path: &str) -> Result<Vec<&str>, Error> {
     Ok(names)
 }
 
+/// "its JSON names `what` `found`, not `expected`": why an entry's JSON is
+/// not the one its key stands for.
+pub(crate) fn differs(
+    what: &str,
+    found: &dyn std::fmt::Debug,
+    expected: &dyn std::fmt::Debug,
+) -> Option<String> {
+    Some(format!("its JSON names {what} {found:?}, not {expected:?}"))
+}
+
 /// What an entry's JSON must say, but for the layer's hash and length.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Identity {
@@ -255,6 +296,7 @@ struct Identity {
 }
 
 impl Identity {
+    #[cfg(test)]
     fn new(agent: &Agent, mksquashfs: &str) -> Identity {
         Self::with_members(agent, mksquashfs, Vec::new())
     }
@@ -291,15 +333,8 @@ impl Identity {
         }
     }
 
-    fn hex(&self) -> &str {
-        self.key.trim_start_matches("sha256:")
-    }
-
     /// Why `info` is not this identity's, or `None` when it is.
     fn mismatch(&self, info: &LayerInfo) -> Option<String> {
-        let differs = |what: &str, found: &dyn std::fmt::Debug, expected: &dyn std::fmt::Debug| {
-            Some(format!("its JSON names {what} {found:?}, not {expected:?}"))
-        };
         if info.format != LAYER_FORMAT {
             return differs("the format", &info.format, &LAYER_FORMAT);
         }
@@ -335,7 +370,87 @@ impl Identity {
         }
         None
     }
+
+    /// The JSON of the layer this identity's entry holds.
+    fn record(&self, packed: &Packed) -> LayerInfo {
+        LayerInfo {
+            format: LAYER_FORMAT.to_owned(),
+            key: self.key.clone(),
+            agent: self.agent.clone(),
+            version: self.version.clone(),
+            binary: self.binary.clone(),
+            binary_len: self.binary_len,
+            path: self.path.clone(),
+            layer: packed.layer.clone(),
+            layer_len: packed.layer_len,
+            packing: self.packing.clone(),
+            mksquashfs: self.mksquashfs.clone(),
+            members: self.members.clone(),
+        }
+    }
 }
+
+/// Where the bytes of a layer's file come from.
+pub(crate) enum Source<'a> {
+    /// A pinned download, fetched into the cache's `downloads/` and checked
+    /// there first.
+    Download(&'a vm::Artefact),
+    /// Bytes compiled into kai.
+    Inline(&'a [u8]),
+}
+
+/// A file a layer holds: its path in the guest, its mode, the SHA-256 and
+/// length its bytes must have, and where they come from.
+pub(crate) struct Content<'a> {
+    /// An absolute path of plain names, checked by the plan's maker.
+    pub(crate) path: String,
+    /// 0755 or 0644.
+    pub(crate) mode: u32,
+    /// SHA-256 of the bytes, in hex.
+    pub(crate) sha256: String,
+    /// Their length.
+    pub(crate) length: u64,
+    /// Where they come from.
+    pub(crate) source: Source<'a>,
+}
+
+/// An entry's JSON, as far as the cache needs it: the layer it names.
+pub(crate) trait Record: Serialize + DeserializeOwned {
+    /// The layer's SHA-256, `sha256:<hex>`, and its length in bytes.
+    fn layer(&self) -> (&str, u64);
+}
+
+/// What a packed layer was found to be when it was read back.
+pub(crate) struct Packed {
+    /// The layer's SHA-256, `sha256:<hex>`: its bytes, as packed.
+    pub(crate) layer: String,
+    /// Its length in bytes.
+    pub(crate) layer_len: u64,
+    /// The SHA-256 of its inventory, `sha256:<hex>`: what it holds
+    /// ([`inventory`]).
+    pub(crate) inventory: String,
+}
+
+/// One entry of a cache of layers: where it lies, its key, its files, and
+/// how its JSON is written and checked.
+pub(crate) struct Plan<'a, R> {
+    /// The cache's directory for its kind: [`AGENTS_DIR`] or the add-ons'.
+    pub(crate) dir: &'static str,
+    /// The key, `sha256:<hex>`, which names everything the layer is made of.
+    pub(crate) key: String,
+    /// The files, in the order they are downloaded.
+    pub(crate) contents: Vec<Content<'a>>,
+    /// Why an entry's JSON is not the one the key stands for, or `None`.
+    pub(crate) mismatch: Mismatch<'a, R>,
+    /// The JSON of a layer just packed and read back.
+    pub(crate) record: MakeRecord<'a, R>,
+}
+
+/// Why an entry's JSON is not the one its key stands for, or `None`.
+pub(crate) type Mismatch<'a, R> = Box<dyn Fn(&R) -> Option<String> + Send + Sync + 'a>;
+
+/// The JSON of a layer just packed and read back.
+pub(crate) type MakeRecord<'a, R> = Box<dyn Fn(&Packed) -> R + Send + Sync + 'a>;
 
 /// Puts `agent` into the cache under `cache` as a layer, unless an entry
 /// there checks out, and says what it did. Downloads only when the program
@@ -372,6 +487,42 @@ fn members(extra: &[Agent], inline: &[Inline]) -> Vec<Member> {
         .collect()
 }
 
+/// An agent's entry: the program, then its supporting files, then the
+/// inline ones, every file mode 0755.
+fn agent_plan<'a>(
+    agent: &'a Agent,
+    extra: &'a [Agent],
+    inline: &'a [Inline],
+    mksquashfs: &str,
+) -> Plan<'a, LayerInfo> {
+    let id = Identity::with_members(agent, mksquashfs, members(extra, inline));
+    let contents = std::iter::once(agent)
+        .chain(extra)
+        .map(|file| Content {
+            path: file.path.to_owned(),
+            mode: 0o755,
+            sha256: file.binary.sha256.to_owned(),
+            length: file.length,
+            source: Source::Download(&file.binary),
+        })
+        .chain(inline.iter().map(|file| Content {
+            path: file.path.to_owned(),
+            mode: 0o755,
+            sha256: sha256_bytes(file.bytes),
+            length: file.bytes.len() as u64,
+            source: Source::Inline(file.bytes),
+        }))
+        .collect();
+    let record = id.clone();
+    Plan {
+        dir: AGENTS_DIR,
+        key: id.key.clone(),
+        contents,
+        mismatch: Box::new(move |info| id.mismatch(info)),
+        record: Box::new(move |packed| record.record(packed)),
+    }
+}
+
 /// Finds a validated runtime layer without downloading or rebuilding anything.
 pub async fn cached_bundle(
     agent: &Agent,
@@ -379,21 +530,10 @@ pub async fn cached_bundle(
     inline: &[Inline],
     cache: &Path,
 ) -> Result<Fetched, Error> {
-    let id = Identity::with_members(agent, &mksquashfs_version().await?, members(extra, inline));
-    let entry = cache.join(AGENTS_DIR).join(id.hex());
-    match check_entry(&entry, &id).await {
-        Entry::Valid(info) => Ok(Fetched {
-            file: entry.join(LAYER_FILE),
-            info: *info,
-            reused: true,
-            downloaded: false,
-            quarantined: None,
-            removed: 0,
-        }),
-        _ => Err(Error::Packed(
-            "no valid runtime layer; run `kai agent fetch` first".into(),
-        )),
-    }
+    let plan = agent_plan(agent, extra, inline, &mksquashfs_version().await?);
+    find(&plan, cache).await.ok_or_else(|| {
+        Error::NotFetched("no valid runtime layer; run `kai agent fetch` first".to_owned())
+    })
 }
 
 /// Builds an agent and its explicitly pinned supporting files through the same
@@ -403,26 +543,55 @@ pub async fn fetch_bundle(
     extra: &[Agent],
     inline: &[Inline],
     cache: &Path,
-    mut at: impl FnMut(Step),
+    at: impl FnMut(Step),
 ) -> Result<Fetched, Error> {
-    components(agent.path)?;
-    let member_list = members(extra, inline);
-    let mut paths = std::collections::BTreeSet::from([agent.path]);
-    for member in &member_list {
-        components(&member.path)?;
-        if !paths.insert(&member.path) {
-            return Err(Error::Packed("duplicate runtime path".into()));
+    let mut paths = std::collections::BTreeSet::new();
+    let all = std::iter::once(agent.path)
+        .chain(extra.iter().map(|file| file.path))
+        .chain(inline.iter().map(|file| file.path));
+    for path in all {
+        components(path)?;
+        if !paths.insert(path) {
+            return Err(Error::Packed("the same path twice".into()));
         }
     }
-    let id = if member_list.is_empty() {
-        Identity::new(agent, &mksquashfs_version().await?)
-    } else {
-        Identity::with_members(agent, &mksquashfs_version().await?, member_list)
-    };
-    let dir = cache.join(AGENTS_DIR);
+    let plan = agent_plan(agent, extra, inline, &mksquashfs_version().await?);
+    publish(&plan, cache, at).await
+}
+
+/// The entry `plan` names, when the cache holds it and it checks out; never
+/// downloads or builds.
+pub(crate) async fn find<R: Record>(plan: &Plan<'_, R>, cache: &Path) -> Option<Fetched<R>> {
+    let entry = cache
+        .join(plan.dir)
+        .join(plan.key.trim_start_matches("sha256:"));
+    match check_entry(&entry, plan).await {
+        Entry::Valid(info) => Some(Fetched {
+            file: entry.join(LAYER_FILE),
+            info: *info,
+            reused: true,
+            downloaded: false,
+            quarantined: None,
+            removed: 0,
+        }),
+        _ => None,
+    }
+}
+
+/// Puts the entry `plan` names into the cache under `cache`, unless one
+/// there checks out: under its lock, what killed fetches left is removed,
+/// an invalid entry moved aside, the downloads fetched and checked, the
+/// files staged, packed, read back, the JSON written last and the whole
+/// published by one rename.
+pub(crate) async fn publish<R: Record>(
+    plan: &Plan<'_, R>,
+    cache: &Path,
+    mut at: impl FnMut(Step),
+) -> Result<Fetched<R>, Error> {
+    let dir = cache.join(plan.dir);
     let downloads = dir.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(io(&downloads))?;
-    let hex = id.hex().to_owned();
+    let hex = plan.key.trim_start_matches("sha256:").to_owned();
     let lock_file = dir.join(format!(".{hex}.lock"));
     let _lock = Lock::acquire(&lock_file).await.map_err(io(&lock_file))?;
     at(Step::Locked);
@@ -430,7 +599,7 @@ pub async fn fetch_bundle(
     let entry = dir.join(&hex);
     let mut removed = remove_parts(&entry).map_err(io(&dir))?;
     let mut quarantined = None;
-    match check_entry(&entry, &id).await {
+    match check_entry(&entry, plan).await {
         Entry::Valid(info) => {
             return Ok(Fetched {
                 file: entry.join(LAYER_FILE),
@@ -452,31 +621,23 @@ pub async fn fetch_bundle(
     }
 
     let mut downloaded = false;
-    for file in std::iter::once(agent).chain(extra) {
-        let download_lock = downloads.join(format!(".{}.lock", file.binary.file));
+    for content in &plan.contents {
+        let Source::Download(artefact) = content.source else {
+            continue;
+        };
+        let download_lock = downloads.join(format!(".{}.lock", artefact.file));
         let _lock = Lock::acquire(&download_lock)
             .await
             .map_err(io(&download_lock))?;
         at(Step::Download);
-        removed += remove_parts(&downloads.join(file.binary.file)).map_err(io(&downloads))?;
-        downloaded |= vm::fetch(&file.binary, &downloads).await? == vm::Fetched::Downloaded;
+        removed += remove_parts(&downloads.join(artefact.file)).map_err(io(&downloads))?;
+        downloaded |= vm::fetch(artefact, &downloads).await? == vm::Fetched::Downloaded;
     }
     let build = PartDir::beside(&entry).map_err(io(&dir))?;
     let stage = build.path().join("stage");
     let layer = build.path().join(LAYER_FILE);
-    for file in std::iter::once(agent).chain(extra) {
-        put_on_stage(
-            &downloads.join(file.binary.file),
-            &stage,
-            &components(file.path)?,
-        )
-        .await?;
-    }
-    for file in inline {
-        let to = stage.join(file.path.trim_start_matches('/'));
-        std::fs::create_dir_all(to.parent().expect("validated file path")).map_err(io(&to))?;
-        std::fs::write(&to, file.bytes).map_err(io(&to))?;
-        std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).map_err(io(&to))?;
+    for content in &plan.contents {
+        put_on_stage(content, &downloads, &stage).await?;
     }
     at(Step::Staged);
     let mut command = Command::new("mksquashfs");
@@ -490,24 +651,15 @@ pub async fn fetch_bundle(
         .map_err(tool("mksquashfs"))?;
     at(Step::Packed);
     std::fs::remove_dir_all(&stage).map_err(io(&stage))?;
-    check_bundle(&layer, agent, &id.members).await?;
+    let inventory = read_back(&layer, &plan.contents).await?;
 
     let hashed = sha256_file_async(layer.clone()).await.map_err(io(&layer))?;
     let layer_len = std::fs::metadata(&layer).map_err(io(&layer))?.len();
-    let info = LayerInfo {
-        format: LAYER_FORMAT.to_owned(),
-        key: id.key.clone(),
-        agent: id.agent.clone(),
-        version: id.version.clone(),
-        binary: id.binary.clone(),
-        binary_len: id.binary_len,
-        path: id.path.clone(),
+    let info = (plan.record)(&Packed {
         layer: format!("sha256:{hashed}"),
         layer_len,
-        packing: id.packing.clone(),
-        mksquashfs: id.mksquashfs.clone(),
-        members: id.members.clone(),
-    };
+        inventory,
+    });
     let json = build.path().join(INFO_FILE);
     let mut text = serde_json::to_vec_pretty(&info).map_err(|err| io(&json)(err.into()))?;
     text.push(b'\n');
@@ -518,7 +670,7 @@ pub async fn fetch_bundle(
             .map_err(io(file))?;
     }
     sync_dir(build.path()).map_err(io(build.path()))?;
-    match check_entry(build.path(), &id).await {
+    match check_entry(build.path(), plan).await {
         Entry::Valid(_) => {}
         Entry::Missing => return Err(Error::Packed("the build directory went away".to_owned())),
         Entry::Invalid(why) => return Err(Error::Packed(why)),
@@ -529,7 +681,7 @@ pub async fn fetch_bundle(
     build.keep().map_err(io(&entry))?;
     at(Step::Published);
     sync_dir(&dir).map_err(io(&dir))?;
-    tracing::info!(entry = %entry.display(), "the agent's layer was built and published");
+    tracing::info!(entry = %entry.display(), "a layer was built and published");
     Ok(Fetched {
         file: entry.join(LAYER_FILE),
         info,
@@ -542,7 +694,7 @@ pub async fn fetch_bundle(
 
 /// `mksquashfs`'s version, the word after `version` in the first line it
 /// prints.
-async fn mksquashfs_version() -> Result<String, Error> {
+pub(crate) async fn mksquashfs_version() -> Result<String, Error> {
     let out = process::run(Command::new("mksquashfs").arg("-version"))
         .await
         .map_err(tool("mksquashfs"))?;
@@ -578,18 +730,18 @@ fn unique() -> String {
 }
 
 /// What an entry's directory holds.
-enum Entry {
+enum Entry<R> {
     /// Nothing at its name.
     Missing,
-    /// A layer whose JSON is the identity's and whose bytes are the ones
-    /// the JSON names.
-    Valid(Box<LayerInfo>),
+    /// A layer whose JSON is the plan's and whose bytes are the ones the
+    /// JSON names.
+    Valid(Box<R>),
     /// Something else, and why it is not an entry.
     Invalid(String),
 }
 
-/// Checks the entry at `dir` against `id`, hashing its layer afresh.
-async fn check_entry(dir: &Path, id: &Identity) -> Entry {
+/// Checks the entry at `dir` against `plan`, hashing its layer afresh.
+async fn check_entry<R: Record>(dir: &Path, plan: &Plan<'_, R>) -> Entry<R> {
     match std::fs::symlink_metadata(dir) {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Entry::Missing,
         Err(err) => return Entry::Invalid(format!("cannot read it: {err}")),
@@ -597,7 +749,7 @@ async fn check_entry(dir: &Path, id: &Identity) -> Entry {
         Ok(_) => {}
     }
     let json = dir.join(INFO_FILE);
-    let info: LayerInfo = match std::fs::symlink_metadata(&json) {
+    let info: R = match std::fs::symlink_metadata(&json) {
         Err(err) => return Entry::Invalid(format!("no {INFO_FILE}: {err}")),
         Ok(meta) if !meta.is_file() => return Entry::Invalid(format!("{INFO_FILE} is not a file")),
         Ok(meta) if meta.len() > MAX_INFO => {
@@ -609,124 +761,207 @@ async fn check_entry(dir: &Path, id: &Identity) -> Entry {
             Err(err) => return Entry::Invalid(format!("cannot read {INFO_FILE}: {err}")),
         },
     };
-    if let Some(why) = id.mismatch(&info) {
+    if let Some(why) = (plan.mismatch)(&info) {
         return Entry::Invalid(why);
     }
+    let (named, named_len) = info.layer();
     let layer = dir.join(LAYER_FILE);
     match std::fs::symlink_metadata(&layer) {
         Err(err) => return Entry::Invalid(format!("no {LAYER_FILE}: {err}")),
         Ok(meta) if !meta.is_file() => {
             return Entry::Invalid(format!("{LAYER_FILE} is not a file"));
         }
-        Ok(meta) if meta.len() != info.layer_len => {
+        Ok(meta) if meta.len() != named_len => {
             return Entry::Invalid(format!(
-                "{LAYER_FILE} has {} bytes, its JSON names {}",
+                "{LAYER_FILE} has {} bytes, its JSON names {named_len}",
                 meta.len(),
-                info.layer_len
             ));
         }
         Ok(_) => {}
     }
     match sha256_file_async(layer).await {
-        Ok(hash) if format!("sha256:{hash}") == info.layer => Entry::Valid(Box::new(info)),
+        Ok(hash) if format!("sha256:{hash}") == named => Entry::Valid(Box::new(info)),
         Ok(hash) => Entry::Invalid(format!(
-            "{LAYER_FILE} has SHA-256 {hash}, its JSON names {}",
-            info.layer
+            "{LAYER_FILE} has SHA-256 {hash}, its JSON names {named}"
         )),
         Err(err) => Entry::Invalid(format!("cannot read {LAYER_FILE}: {err}")),
     }
 }
 
-/// Copies the program `from` to its path under `stage`, the directories
-/// and the program mode 0755, whatever the umask.
-async fn put_on_stage(from: &Path, stage: &Path, names: &[&str]) -> Result<(), Error> {
-    let mut dir = stage.to_path_buf();
-    let (program, dirs) = names
+/// Puts `content` at its path under `stage`, its directories mode 0755
+/// and itself its own mode, whatever the umask: a download from
+/// `downloads`, checked there, or inline bytes.
+async fn put_on_stage(content: &Content<'_>, downloads: &Path, stage: &Path) -> Result<(), Error> {
+    let names: Vec<&str> = content.path.trim_start_matches('/').split('/').collect();
+    let (file, dirs) = names
         .split_last()
-        .ok_or_else(|| Error::Path(String::new()))?;
+        .ok_or_else(|| Error::Packed(format!("no file name in `{}`", content.path)))?;
+    let mut dir = stage.to_path_buf();
     let mut made = vec![dir.clone()];
     for name in dirs {
         dir.push(name);
         made.push(dir.clone());
     }
     std::fs::create_dir_all(&dir).map_err(io(&dir))?;
-    let to = dir.join(program);
-    let (copy_from, copy_to) = (from.to_path_buf(), to.clone());
-    tokio::task::spawn_blocking(move || std::fs::copy(copy_from, copy_to))
-        .await
-        .unwrap_or_else(|join| Err(std::io::Error::other(join)))
-        .map_err(io(&to))?;
-    made.push(to);
     for path in &made {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(io(path))?;
     }
-    Ok(())
+    let to = dir.join(file);
+    match content.source {
+        Source::Download(artefact) => {
+            let (copy_from, copy_to) = (downloads.join(artefact.file), to.clone());
+            tokio::task::spawn_blocking(move || std::fs::copy(copy_from, copy_to))
+                .await
+                .unwrap_or_else(|join| Err(std::io::Error::other(join)))
+                .map_err(io(&to))?;
+        }
+        Source::Inline(bytes) => std::fs::write(&to, bytes).map_err(io(&to))?,
+    }
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(content.mode)).map_err(io(&to))
 }
 
-/// Reads the packed layer back: it lists the program's directories and
-/// the program, nothing else, every one root's and mode 0755, and the
-/// program's bytes are the pinned ones.
-async fn check_bundle(layer: &Path, agent: &Agent, members: &[Member]) -> Result<(), Error> {
-    let primary = Member {
-        path: agent.path.into(),
-        sha256: agent.binary.sha256.into(),
-        length: agent.length,
-        version: agent.version.into(),
+/// One line of a layer's inventory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Line {
+    /// A directory, or a file.
+    dir: bool,
+    /// Its mode, 0755 or 0644.
+    mode: u32,
+    /// For a file: its length and SHA-256.
+    file: Option<(u64, String)>,
+}
+
+impl Line {
+    /// The mode as `unsquashfs -lln` shows it: `drwxr-xr-x`, `-rw-r--r--`.
+    fn shown(&self) -> String {
+        let mut text = String::from(if self.dir { "d" } else { "-" });
+        for shift in [6, 3, 0] {
+            let bits = (self.mode >> shift) & 7;
+            text.push(if bits & 4 != 0 { 'r' } else { '-' });
+            text.push(if bits & 2 != 0 { 'w' } else { '-' });
+            text.push(if bits & 1 != 0 { 'x' } else { '-' });
+        }
+        text
+    }
+}
+
+/// The inventory of a layer that holds `contents` and nothing else, every
+/// one root's: each directory and file by its path, and the SHA-256 of its
+/// text, `sha256:<hex>`. The text has one line per path, in order of the
+/// path: `d 0755 0/0 - - <path>` for a directory, `f <mode> 0/0 <length>
+/// <sha256> <path>` for a file. It names what a layer holds, not its bytes:
+/// another `mksquashfs` may pack the same inventory into other bytes.
+pub(crate) fn inventory(contents: &[Content<'_>]) -> Result<String, Error> {
+    inventory_lines(contents).map(|(_, digest)| digest)
+}
+
+/// [`inventory`], with its lines by path.
+fn inventory_lines(contents: &[Content<'_>]) -> Result<(BTreeMap<String, Line>, String), Error> {
+    let mut lines = BTreeMap::new();
+    let root = Line {
+        dir: true,
+        mode: 0o755,
+        file: None,
     };
-    let all: Vec<_> = std::iter::once(&primary).chain(members).collect();
-    let mut expected = std::collections::BTreeMap::new();
-    expected.insert("squashfs-root".to_owned(), ("drwxr-xr-x", None));
-    for file in &all {
-        let names = components(&file.path)?;
+    lines.insert("/".to_owned(), root.clone());
+    for content in contents {
+        if !matches!(content.mode, 0o755 | 0o644) {
+            return Err(Error::Packed(format!(
+                "mode {:o} for `{}`",
+                content.mode, content.path
+            )));
+        }
+        let names: Vec<&str> = content.path.trim_start_matches('/').split('/').collect();
         for depth in 1..=names.len() {
-            let path = format!("squashfs-root/{}", names[..depth].join("/"));
-            let value = if depth == names.len() {
-                ("-rwxr-xr-x", Some(file.length))
+            let path = format!("/{}", names[..depth].join("/"));
+            let line = if depth == names.len() {
+                Line {
+                    dir: false,
+                    mode: content.mode,
+                    file: Some((content.length, content.sha256.clone())),
+                }
             } else {
-                ("drwxr-xr-x", None)
+                root.clone()
             };
-            if expected.insert(path, value).is_some_and(|old| old != value) {
-                return Err(Error::Packed("overlapping runtime paths".into()));
+            if lines
+                .insert(path, line.clone())
+                .is_some_and(|old| old != line)
+            {
+                return Err(Error::Packed(format!(
+                    "`{}` lies where another file is",
+                    content.path
+                )));
             }
         }
     }
+    let mut text = String::new();
+    for (path, line) in &lines {
+        let (kind, file) = match &line.file {
+            None => ("d", "- -".to_owned()),
+            Some((length, sha256)) => ("f", format!("{length} {sha256}")),
+        };
+        text.push_str(&format!("{kind} {:04o} 0/0 {file} {path}\n", line.mode));
+    }
+    Ok((lines, format!("sha256:{}", sha256_bytes(text.as_bytes()))))
+}
+
+/// Reads the packed layer back: it lists the directories and files of
+/// `contents` and nothing else, every one root's with its mode, and each
+/// file's bytes are the pinned ones. Returns the inventory's digest.
+async fn read_back(layer: &Path, contents: &[Content<'_>]) -> Result<String, Error> {
+    let (mut expected, digest) = inventory_lines(contents)?;
     let listing = process::run(Command::new("unsquashfs").args(["-lln", "-UTC"]).arg(layer))
         .await
         .map_err(tool("unsquashfs"))?;
     let text = String::from_utf8_lossy(&listing);
     let lines: Vec<_> = text.lines().filter(|line| !line.is_empty()).collect();
     if lines.len() != expected.len() {
-        return Err(Error::Packed("unexpected runtime inventory".into()));
+        return Err(Error::Packed(format!(
+            "it lists {} paths, not {}",
+            lines.len(),
+            expected.len()
+        )));
     }
     for line in lines {
         let words: Vec<_> = line.split_whitespace().collect();
         if words.len() != 6 {
-            return Err(Error::Packed("invalid inventory line".into()));
+            return Err(Error::Packed("a line of its listing does not read".into()));
         }
-        let Some((mode, size)) = expected.remove(words[5]) else {
-            return Err(Error::Packed("unexpected runtime file".into()));
+        let path = match words[5].strip_prefix("squashfs-root") {
+            Some("") => "/",
+            Some(rest) if rest.starts_with('/') => rest,
+            _ => return Err(Error::Packed("a path outside its root".into())),
         };
-        if words[0] != mode || words[1] != "0/0" || size.is_some_and(|n| words[2] != n.to_string())
-        {
-            return Err(Error::Packed(
-                "incorrect runtime owner, mode or size".into(),
-            ));
+        let Some(want) = expected.remove(path) else {
+            return Err(Error::Packed(format!("`{path}`, which is not pinned")));
+        };
+        let size_differs = want
+            .file
+            .as_ref()
+            .is_some_and(|(length, _)| words[2] != length.to_string());
+        if words[0] != want.shown() || words[1] != "0/0" || size_differs {
+            return Err(Error::Packed(format!(
+                "`{path}` with another owner, mode or size"
+            )));
         }
     }
-    for file in all {
+    for content in contents {
         let hashed = process::run_hashed(
             Command::new("unsquashfs")
                 .arg("-cat")
                 .arg(layer)
-                .arg(file.path.trim_start_matches('/')),
+                .arg(content.path.trim_start_matches('/')),
         )
         .await
         .map_err(tool("unsquashfs"))?;
-        if hashed.sha256 != file.sha256 || hashed.len != file.length {
-            return Err(Error::Packed("runtime file checksum mismatch".into()));
+        if hashed.sha256 != content.sha256 || hashed.len != content.length {
+            return Err(Error::Packed(format!(
+                "`{}` with other bytes than its pin",
+                content.path
+            )));
         }
     }
-    Ok(())
+    Ok(digest)
 }
 
 #[cfg(test)]
@@ -806,5 +1041,62 @@ mod tests {
         let mut moved = info.clone();
         moved.path = "/opt/kai/agents/elsewhere".to_owned();
         assert!(id.mismatch(&moved).unwrap().contains("the path"));
+    }
+
+    /// An invented runtime: a program, a supporting file and a wrapper.
+    const INVENTED: Agent = Agent {
+        name: "invented-agent",
+        version: "1.0.0",
+        binary: vm::Artefact {
+            name: "Invented agent 1.0.0",
+            file: "invented-agent-1.0.0",
+            url: "https://example.invalid/invented-agent-1.0.0",
+            download_sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+            member: None,
+            sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+            executable: true,
+        },
+        length: 4096,
+        path: "/opt/kai/agents/invented/agent",
+    };
+    const INVENTED_RUNTIME: [Agent; 1] = [Agent {
+        name: "invented-runtime",
+        version: "2.0.0",
+        binary: vm::Artefact {
+            name: "Invented runtime 2.0.0",
+            file: "invented-runtime-2.0.0",
+            url: "https://example.invalid/invented-runtime-2.0.0.tgz",
+            download_sha256: "2222222222222222222222222222222222222222222222222222222222222222",
+            member: Some("invented-runtime-2.0.0/bin/runtime"),
+            sha256: "3333333333333333333333333333333333333333333333333333333333333333",
+            executable: true,
+        },
+        length: 2048,
+        path: "/opt/kai/agents/invented/runtime",
+    }];
+    const INVENTED_WRAPPER: [Inline; 1] = [Inline {
+        path: "/opt/kai/agents/invented/wrapper.mjs",
+        bytes: b"// An invented wrapper.\n",
+        version: "invented-session/1",
+    }];
+
+    #[test]
+    fn kai_writes_and_reads_back_the_documented_example() {
+        let plan = agent_plan(&INVENTED, &INVENTED_RUNTIME, &INVENTED_WRAPPER, "4.7.5");
+        let written = (plan.record)(&Packed {
+            layer: format!("sha256:{}", "4".repeat(64)),
+            layer_len: 8192,
+            inventory: inventory(&plan.contents).unwrap(),
+        });
+        let text = include_str!("../../../contracts/kai-agent-layer-1.example.json");
+        assert_eq!(
+            serde_json::to_value(&written).unwrap(),
+            serde_json::from_str::<serde_json::Value>(text).unwrap(),
+            "{}",
+            serde_json::to_string_pretty(&written).unwrap()
+        );
+        // Read back as the cache reads an entry's JSON: it names the key.
+        let example: LayerInfo = serde_json::from_str(text).unwrap();
+        assert_eq!((plan.mismatch)(&example), None);
     }
 }

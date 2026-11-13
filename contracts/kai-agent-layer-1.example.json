@@ -1,0 +1,35 @@
+{
+  "format": "kai-agent-layer/1",
+  "key": "sha256:e33da333ba18bb08895369ffe45155fbf77b611a6bcf0e45daff0713e127c471",
+  "agent": "invented-agent",
+  "version": "1.0.0",
+  "binary": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "binary_len": 4096,
+  "path": "/opt/kai/agents/invented/agent",
+  "layer": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "layer_len": 8192,
+  "packing": [
+    "-all-root",
+    "-comp",
+    "zstd",
+    "-noappend",
+    "-no-xattrs",
+    "-repro-time",
+    "0"
+  ],
+  "mksquashfs": "4.7.5",
+  "members": [
+    {
+      "path": "/opt/kai/agents/invented/runtime",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "length": 2048,
+      "version": "2.0.0"
+    },
+    {
+      "path": "/opt/kai/agents/invented/wrapper.mjs",
+      "sha256": "cd540b93e72f6b2ce787ebc04a28e55e872f48705fb3916ea653adfb58bb16e3",
+      "length": 24,
+      "version": "invented-session/1"
+    }
+  ]
+}

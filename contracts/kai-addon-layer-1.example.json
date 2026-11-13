@@ -1,0 +1,44 @@
+{
+  "format": "kai-addon-layer/1",
+  "key": "sha256:5e490db5ac0c1bd549f789f6537159550f9c33891e45a5cced41ca3f202ffe77",
+  "name": "invented",
+  "dir": "/opt/kai/addons/invented",
+  "repository": "https://example.invalid/invented",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "licence": "LicenseRef-invented",
+  "licence_file": "/opt/kai/addons/invented/LICENSE",
+  "files": [
+    {
+      "source": "skills/invented/SKILL.md",
+      "path": "/opt/kai/addons/invented/skills/invented/SKILL.md",
+      "sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "length": 120
+    },
+    {
+      "source": "LICENSE",
+      "path": "/opt/kai/addons/invented/LICENSE",
+      "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "length": 40
+    }
+  ],
+  "written": [
+    {
+      "path": "/opt/kai/addons/invented/.claude-plugin/plugin.json",
+      "sha256": "sha256:d0061f6f685bb1e18d1a25592d6d70f33b4f24e5aa1f5279354fa3e4093a96b2",
+      "length": 20
+    }
+  ],
+  "inventory": "sha256:e4c866bc938dec270aa82478a55b0bdc3acd10bef12b3c1c29be14b75ce0f9f9",
+  "layer": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "layer_len": 4096,
+  "packing": [
+    "-all-root",
+    "-comp",
+    "zstd",
+    "-noappend",
+    "-no-xattrs",
+    "-repro-time",
+    "0"
+  ],
+  "mksquashfs": "4.7.5"
+}
