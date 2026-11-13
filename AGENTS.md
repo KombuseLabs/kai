@@ -3,17 +3,18 @@
 kai compares variants of a coding agent on real tickets and says for each
 variant whether it is better than the shadow (the variant in use today),
 worse or not distinguishable, and what it cost. Nothing of that is built
-yet: `kai` prints a greeting that `engine` supplies, and which commands
-and further crates kai consists of is not decided.
+yet. What is: tickets come in from GitHub issues (`kai github sync`) into
+a local SQLite store, and `kai ticket qualify` says from what GitHub said
+whether kai may use each one. No ticket is run yet.
 
 ## Where things are
 
 | Path | What it is |
 | --- | --- |
-| `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai` |
+| `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai`. `main.rs` starts up, `settings.rs` reads `kai.toml`, `src/cmd/` has a module per command group |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library: today the static qualify rules; never depends on `cli` |
-| `crates/store/` | a throwaway SQLite cache of the tickets; emptied when its schema changes, no migrations |
+| `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`, and `config`, which finds and reads settings files |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |

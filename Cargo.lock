@@ -177,9 +177,13 @@ dependencies = [
  "clap",
  "dotenvy",
  "engine",
+ "github",
  "helpers",
  "serde",
+ "store",
+ "tokio",
  "tracing",
+ "types",
 ]
 
 [[package]]

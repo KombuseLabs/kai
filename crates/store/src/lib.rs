@@ -1,11 +1,12 @@
 //! The store: a SQLite file that holds the tickets kai fetched, and where
 //! each board's last sync stopped.
 //!
-//! It is a cache of GitHub, not a source of truth: deleting the file loses
-//! nothing that a sync does not fetch again. So there are no migrations:
-//! when the schema changes, [`Store::open`] empties a store of an older
-//! schema, and the next sync fills it. The file is no contract; no other
-//! program should read it.
+//! Everything in it today came from GitHub, so a sync can fetch it again.
+//! For now there are no migrations: when the schema changes,
+//! [`Store::open`] empties a store of an older schema, and the next sync
+//! fills it. Whether that stays so once the store holds more than GitHub's
+//! data is not decided. The file is no contract; no other program should
+//! read it.
 //!
 //! A file that is not kai's store is never emptied. kai marks its stores
 //! with a SQLite application id and refuses a database without it that

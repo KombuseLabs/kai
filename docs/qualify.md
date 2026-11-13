@@ -139,3 +139,37 @@ flowchart TD
 A rule that was not checked is never counted as met. Since `trust-gate`
 and `at-ref` are not checked for any ticket yet, every ticket is refused
 or undecided; none is qualified until both are built.
+
+## How kai uses it
+
+`kai github sync` fills the store; `kai ticket qualify` reads it and
+judges each ticket. Qualifying needs no network: it works on what the
+last sync fetched.
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant cli as kai (cli)
+    participant gh as github::Client
+    participant GitHub
+    participant store as store::Store
+    participant engine as engine::qualify
+
+    You->>cli: kai github sync
+    cli->>store: cursor(board)
+    cli->>gh: fetch_board(board, since)
+    gh->>GitHub: GraphQL, 50 issues a page
+    GitHub-->>gh: issues, labels, labeled events
+    gh-->>cli: tickets and the next cursor
+    cli->>store: record_sync(board, tickets, cursor)
+
+    You->>cli: kai ticket qualify
+    cli->>store: tickets()
+    store-->>cli: every ticket
+    loop each ticket
+        cli->>engine: qualify(ticket)
+        engine-->>cli: Qualification
+        Note over cli: prints the verdict and each finding that did not pass
+    end
+    cli-->>You: how many are qualified, refused, undecided
+```

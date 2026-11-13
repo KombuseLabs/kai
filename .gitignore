@@ -7,3 +7,6 @@
 # Secrets of a maintainer's checkout, such as the GitHub token; never
 # published.
 /.env
+
+# The store, kai's cache of tickets (kai.toml, [store]).
+/.kai/

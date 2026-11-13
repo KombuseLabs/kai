@@ -1,5 +1,13 @@
-//! kai's command line: reads arguments, calls `engine`, prints. For now it
-//! only greets.
+//! kai's command line: reads arguments, calls the library crates, prints.
+//!
+//! - `kai` greets.
+//! - `kai github sync` fetches a board's issues into the store, a SQLite
+//!   cache of GitHub. It never writes to GitHub.
+//! - `kai ticket list` lists the tickets in the store.
+//! - `kai ticket qualify` says for each whether kai may use it, judged from
+//!   what GitHub said: qualified, refused, or undecided while a rule is not
+//!   checked.
+//! - `kai store reset` empties the store; the next sync fetches everything.
 //!
 //! Results go to standard output, log lines never do: they go to standard
 //! error, at the level `--log-level` names, and with `--log-file` also to a
@@ -15,8 +23,17 @@
 //! stand in it. A variable that is already set wins over the file. The file
 //! is for secrets and stays out of version control.
 //!
-//! Exit status: 0; 2 for a command line, a `.env` or a settings file kai
-//! cannot read, or when logging cannot be set up.
+//! The GitHub token: `KAI_GITHUB_TOKEN`, else what `gh auth token` prints.
+//! It is never an option, so that it stays out of the shell's history and
+//! the process list.
+//!
+//! Exit status: 0; 1 when a command fails (GitHub, the store); 2 for a
+//! command line, a `.env` or a settings file kai cannot read or that lacks
+//! what the command needs, or when logging cannot be set up.
+//!
+//! Here: starting up, the options every command takes, the exit status.
+//! [`settings`]: kai.toml and which setting wins. [`cmd`]: the commands, a
+//! module per group.
 
 #![allow(
     clippy::print_stdout,
@@ -24,117 +41,41 @@
     reason = "printing is what the command line is for"
 )]
 
+mod cmd;
+mod settings;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use clap::{Parser, ValueEnum};
-use helpers::config::{self, Loaded};
-use helpers::logging::{self, Format, Sink, Target};
-use serde::Deserialize;
-use tracing::Level;
+use clap::Parser;
+use helpers::logging;
 
-/// The settings file kai looks for, from the current directory upward.
-const CONFIG_FILE: &str = "kai.toml";
+use cmd::{Command, Context, Failure};
+use settings::{CONFIG_FILE, LogLevel};
 
 /// Compares variants of a coding agent on your own tickets.
 #[derive(Parser)]
 #[command(name = "kai", version)]
 struct Cli {
     /// Read the settings from this file instead of the first kai.toml from the current directory upward
-    #[arg(long, env = "KAI_CONFIG", value_name = "FILE")]
+    #[arg(long, global = true, env = "KAI_CONFIG", value_name = "FILE")]
     config: Option<PathBuf>,
 
     /// Lowest level of the log lines shown on standard error; without it, log.level in kai.toml, else warn
-    #[arg(long, env = "KAI_LOG_LEVEL", value_name = "LEVEL")]
+    #[arg(long, global = true, env = "KAI_LOG_LEVEL", value_name = "LEVEL")]
     log_level: Option<LogLevel>,
 
     /// Also write every log line from debug up to this file, one JSON object per line; without it, log.file in kai.toml
-    #[arg(long, env = "KAI_LOG_FILE", value_name = "FILE")]
+    #[arg(long, global = true, env = "KAI_LOG_FILE", value_name = "FILE")]
     log_file: Option<PathBuf>,
-}
 
-#[derive(Clone, Copy, ValueEnum, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LogLevel {
-    Off,
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-}
+    /// The store, a SQLite cache of the tickets; without it, store.path in kai.toml, else .kai/store.sqlite beside kai.toml or here
+    #[arg(long, global = true, env = "KAI_STORE", value_name = "FILE")]
+    store: Option<PathBuf>,
 
-impl LogLevel {
-    /// `None` for `off`.
-    fn level(self) -> Option<Level> {
-        match self {
-            LogLevel::Off => None,
-            LogLevel::Error => Some(Level::ERROR),
-            LogLevel::Warn => Some(Level::WARN),
-            LogLevel::Info => Some(Level::INFO),
-            LogLevel::Debug => Some(Level::DEBUG),
-            LogLevel::Trace => Some(Level::TRACE),
-        }
-    }
-}
-
-/// What a `kai.toml` may hold. Every key may be left out; a key kai does
-/// not know is refused, so that a misspelt one is never silently ignored.
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    #[serde(default)]
-    log: LogConfig,
-}
-
-/// The `[log]` table, as `--log-level` and `--log-file`.
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LogConfig {
-    level: Option<LogLevel>,
-    file: Option<PathBuf>,
-}
-
-impl Cli {
-    /// The settings file: the one `--config` names, else the first
-    /// `kai.toml` from the current directory upward, else none.
-    fn config(&self) -> anyhow::Result<Option<Loaded<Config>>> {
-        let path = match &self.config {
-            Some(path) => path.clone(),
-            None => {
-                let here = std::env::current_dir().context("cannot tell the current directory")?;
-                match config::find(&here, CONFIG_FILE) {
-                    Some(path) => path,
-                    None => return Ok(None),
-                }
-            }
-        };
-        Ok(Some(config::load(&path)?))
-    }
-
-    /// The sinks the options and the settings file ask for.
-    fn sinks(&self, config: Option<&Loaded<Config>>) -> Vec<Sink> {
-        let log = config.map(|config| &config.value.log);
-        let level = self
-            .log_level
-            .or(log.and_then(|log| log.level))
-            .unwrap_or(LogLevel::Warn);
-        let file = self.log_file.clone().or_else(|| {
-            let config = config?;
-            let file = config.value.log.file.as_deref()?;
-            Some(config.resolve(file))
-        });
-
-        let mut sinks = Vec::new();
-        if let Some(level) = level.level() {
-            sinks.push(Sink::new(Target::Stderr, Format::Pretty, level));
-        }
-        if let Some(path) = file {
-            sinks.push(Sink::new(Target::File(path), Format::Json, Level::DEBUG));
-        }
-        sinks
-    }
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
 /// Reads the first `.env` from the current directory upward into the
@@ -162,15 +103,16 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let cli = Cli::parse();
-    let config = match cli.config() {
+    let config = match settings::load(cli.config.as_deref()) {
         Ok(config) => config,
         Err(err) => {
             eprintln!("kai: {err:#}");
             return ExitCode::from(2);
         }
     };
+    let sinks = settings::sinks(cli.log_level, cli.log_file.as_deref(), config.as_ref());
     // Kept until main returns: dropping it writes what is still queued.
-    let _logging = match logging::init(cli.sinks(config.as_ref())) {
+    let _logging = match logging::init(sinks) {
         Ok(logging) => logging,
         Err(err) => {
             eprintln!("kai: cannot set up logging: {err}");
@@ -183,6 +125,19 @@ fn main() -> ExitCode {
         None => tracing::debug!("no {CONFIG_FILE} found; kai's defaults apply"),
     }
 
-    println!("{}", engine::greeting());
-    ExitCode::SUCCESS
+    let context = Context {
+        store: settings::store_path(cli.store.as_deref(), config.as_ref()),
+        config: config.as_ref(),
+    };
+    match cmd::run(cli.command.as_ref(), &context) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(Failure::Usage(err)) => {
+            eprintln!("kai: {err:#}");
+            ExitCode::from(2)
+        }
+        Err(Failure::Run(err)) => {
+            eprintln!("kai: {err:#}");
+            ExitCode::from(1)
+        }
+    }
 }

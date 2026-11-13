@@ -14,3 +14,19 @@ level = "warn"
 # line. As --log-file; a relative path is taken from this file's directory.
 # Unset by default.
 # file = "target/kai.jsonl"
+
+[github]
+# The repository whose issues are kai's tickets, as owner/name. As --board
+# (or KAI_GITHUB_BOARD); `kai github sync` needs one of them. Unset by
+# default.
+# board = "owner/name"
+
+# The GitHub API's address; kai sends its queries to <api>/graphql. Only
+# https://, except for this machine.
+# api = "https://api.github.com"
+
+[store]
+# The store, kai's cache of the tickets it fetched: a SQLite file that
+# `kai store reset` empties at any time, since a sync fills it again. As
+# --store; a relative path is taken from this file's directory.
+# path = ".kai/store.sqlite"
