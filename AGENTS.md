@@ -6,7 +6,8 @@ worse or not distinguishable, and what it cost. Nothing of that is built
 yet. What is: tickets come in from GitHub issues (`kai github sync`) into
 a local SQLite store, and `kai ticket qualify` says from what GitHub said
 whether kai may use each one. `kai vm run` runs one command in a fresh
-Firecracker microVM. No ticket is run yet.
+Firecracker microVM, and `kai ticket deps` fetches and builds a ticket's
+repository and dependencies in microVMs. No ticket's check is run yet.
 
 ## Where things are
 

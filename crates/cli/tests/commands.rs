@@ -232,3 +232,72 @@ fn sync_that_cannot_reach_github_fails_and_leaves_the_store_as_it_was() {
     assert_eq!(store.tickets().unwrap().len(), 3);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn deps_refuses_a_ticket_its_rules_refuse() {
+    let dir = dir("deps-refused");
+    store_with_tickets(&dir);
+    let cache = dir.join("cache");
+    let output = kai(
+        &dir,
+        &["ticket", "deps", "1", "--cache", cache.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        stderr(&output).contains("is refused: label: "),
+        "{}",
+        stderr(&output)
+    );
+    assert!(!cache.exists(), "nothing is made for a refused ticket");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn deps_needs_the_image_of_the_rust_recipe() {
+    let dir = dir("deps-image");
+    store_with_tickets(&dir);
+    let cache = dir.join("cache");
+    let output = kai(
+        &dir,
+        &["ticket", "deps", "2", "--cache", cache.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        stderr(&output).contains("`kai vm image build rust`"),
+        "{}",
+        stderr(&output)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn deps_takes_a_repository_and_a_full_sha_instead_of_a_ticket() {
+    let dir = dir("deps-repo");
+    let output = kai(
+        &dir,
+        &[
+            "ticket",
+            "deps",
+            "--repo",
+            "example-org/example-code",
+            "--ref",
+            "abc123",
+        ],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(stderr(&output).contains("full sha"), "{}", stderr(&output));
+    let output = kai(
+        &dir,
+        &["ticket", "deps", "--repo", "example-org/example-code"],
+        &[],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a repository without a ref: {output:?}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

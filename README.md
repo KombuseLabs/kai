@@ -4,7 +4,7 @@ kai compares variants of a coding agent on real tickets and says for each
 variant whether it is better than the one in use today, worse or not
 distinguishable, and what it cost. Nothing of that is built yet. What is:
 tickets from GitHub issues and the rules that say whether kai may use one,
-and microVMs that run one command each.
+and microVMs that run one command each, a ticket's code among them.
 
 ## What works today
 
@@ -21,6 +21,7 @@ cargo run -- vm fetch               # the pinned Firecracker and guest kernel in
 cargo run -- vm image build rust    # the image of kai's Rust recipe, with Docker
 cargo run -- vm image list          # the recipes, and which images are built
 cargo run -- vm run --image rust -- cargo --version   # one command in a fresh microVM
+cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched and built in microVMs
 ```
 
 ### Tickets
@@ -106,11 +107,26 @@ the named hosts and nothing else; `--proxy-learn` lets every host through
 and records those not named. Its ledger is `proxy.jsonl` in the run
 directory, and `result.json` counts it.
 
+`kai ticket deps <number>` (or `--repo owner/name --ref <sha>`, a public
+repository) gets a ticket's code into microVMs without kai's host ever
+running git or cargo on it. A fetch run, whose only way out is fence's
+proxy to GitHub, `static.rust-lang.org` and crates.io, clones the commit
+into `/src`, installs the toolchain `rust-toolchain.toml` names and runs
+`cargo fetch --locked`; nothing of the tree runs there. A build run with no
+way out then builds the dependencies (`cargo test --no-run`). What each
+wrote is kept as a layer, keyed by image, script, repository and commit,
+and a second call takes both from the cache. A run on the two layers works
+in `/src`, offline, with the dependencies built:
+`kai vm run --image rust --layer <fetch> --layer <build> --cwd /src -- cargo test`.
+A refused ticket is not fetched.
+
 Limits today:
 
 - Linux on x86_64 with KVM only.
 - One recipe, `rust`.
 - `--tree-out` keeps neither hard links nor holes in files.
+- `kai ticket deps` takes public repositories on GitHub with a Rust
+  project and its `Cargo.lock`; no token enters a VM.
 - A VM belongs to the kai that started it and is stopped when kai stops,
   on Ctrl-C or SIGTERM too. A kai killed outright cannot stop it; the VM
   then ends at the guest's own time limit.
@@ -134,8 +150,8 @@ built without its init, and `kai vm doctor` says so.
 
 ## Not built yet
 
-- A ticket's repository and dependencies fetched and built in microVMs,
-  and its check, its hidden tests, run there.
+- A ticket's check, its hidden tests, run in a microVM on the layers
+  `kai ticket deps` makes.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 
