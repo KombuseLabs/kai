@@ -7,6 +7,12 @@ files with another program. One page per format.
 | --- | --- | --- |
 | [kai-agent-session/1](kai-agent-session-1.md) | `events.jsonl`, host/guest stream | `agent` and its guest wrapper |
 | [kai-agent-run/1](kai-agent-run-1.md) | `agent.json` | `agent` |
+| [kai-pair/1](kai-pair-1.md) | `pair.json` | `agent compare` and named `run` |
+| [kai-report-evidence/1](kai-report-evidence-1.md) | `report-evidence.json` | current pair handoff writer |
+| [kai-report-evidence/2](kai-report-evidence-2.md) | `report-evidence.json` | proposed versioned pair handoff; not implemented |
+| [kai-report-definition/1](kai-report-definition-1.md) | frozen `report-definition.json` | proposed explicit declaration input |
+| [kai-report-cohort/1](kai-report-cohort-1.md) | referenced cohort manifest | proposed declaration input |
+| [kai-execution-platform/1](kai-execution-platform-1.md) | referenced launcher observation | proposed Kai launcher evidence |
 | [kai-agent-layer/1](kai-agent-layer-1.md) | `layer.json` of an agent's layer in the VM cache | `kai agent fetch` (crates/agent) |
 | [kai-addon-layer/1](kai-addon-layer-1.md) | `layer.json` of an add-on's layer in the VM cache | `kai agent fetch --addon` (crates/agent) |
 | [kai-vm-run/1](kai-vm-run-1.md) | `result.json` of a microVM run | `kai vm run` (crates/vm) |

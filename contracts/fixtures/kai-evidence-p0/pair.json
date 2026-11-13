@@ -1,0 +1,49 @@
+{
+  "format": "kai-pair/1",
+  "run_id": "3448ef124d85d68ba4927a90565aac35",
+  "producer": "0.1.0",
+  "state": "finished",
+  "started_at": 1794609399147,
+  "finished_at": 1794609401040,
+  "task": {
+    "digest": "def9bb1e9bfd854bcf786d272d31d03ba03cbd9dfd6b87ecfd21519f7f3b727a",
+    "name": "fixture",
+    "prompt": "TASK_FIXTURE: build a calculator",
+    "snapshot": "f4da63d2b7afece2da6fef2cbe55713686e3474c4a67b46d8409346ab8c7b12f"
+  },
+  "profile": {
+    "agent_version": "2.1.323",
+    "cpus": 2,
+    "image": "rust",
+    "max_output_tokens": 32000,
+    "max_turns": 3,
+    "memory": 4096,
+    "mock": true,
+    "model": "fixture",
+    "sdk": "0.3.323",
+    "timeout": 600,
+    "tools": "Read,Edit,Write,Bash,Glob,Grep"
+  },
+  "treatment": {
+    "addon": {
+      "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+      "name": "ponytail"
+    },
+    "digest": "7bde5332bbc717520c0559fa933966cc748e75bf30ef0e8d4ef0d9223976a8f9",
+    "extra_prompt": "/ponytail full"
+  },
+  "without": {
+    "name": "plain",
+    "state": "completed",
+    "started_at": 1794609399148,
+    "finished_at": 1794609400994,
+    "elapsed_ms": 1846
+  },
+  "with": {
+    "name": "ponytail",
+    "state": "completed",
+    "started_at": 1794609399148,
+    "finished_at": 1794609401040,
+    "elapsed_ms": 1892
+  }
+}

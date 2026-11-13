@@ -1,0 +1,60 @@
+{
+  "format": "kai-report-evidence/2",
+  "producer": {
+    "name": "kai",
+    "version": "0.1.0"
+  },
+  "run_id": "3448ef124d85d68ba4927a90565aac35",
+  "capture": "producer-terminal",
+  "recorded_at": 1794609401041,
+  "pair": {
+    "path": "pair.json",
+    "sha256": "sha256:975a1ee40a58c32fad08a2e58c8c4cc08bd331f75ad7f8a75c49817bfb0da51f"
+  },
+  "definition": {
+    "path": "definition.json",
+    "sha256": "sha256:1db31b527580d65211b14399620e26b5461896eb2c3383ffb19e68d5488a93b4"
+  },
+  "arms": {
+    "without": {
+      "agent": {
+        "path": "plain/run/agent.json",
+        "sha256": "sha256:3c5138a8604bb700883115a2e0ec1dc652e62d270d4f9cb1b0976e3f5e0f887a"
+      },
+      "agent_missing": null,
+      "execution_os": {
+        "family": "linux",
+        "architecture": "x86_64",
+        "evidence": {
+          "path": "platform/without.json",
+          "sha256": "sha256:a70e91ecf90723f19b71b38a553c4619e2c75fbb4a874bfdb82c70eec4365b7c"
+        }
+      },
+      "events": {
+        "path": "plain/run/events.jsonl",
+        "sha256": "sha256:20c47899ac3c623d7901826c19829b63816461125e2f4305992b48b3281f4004"
+      },
+      "quality": "ungraded"
+    },
+    "with": {
+      "agent": {
+        "path": "ponytail/run/agent.json",
+        "sha256": "sha256:423a299ab33bb979907115c21396bd1a1531e9053e722c2cf859fc9f3b7102b7"
+      },
+      "agent_missing": null,
+      "execution_os": {
+        "family": "linux",
+        "architecture": "x86_64",
+        "evidence": {
+          "path": "platform/with.json",
+          "sha256": "sha256:0e1146e82dcd467ef5f8f1893d792dd682919a4d87c73ca24b6d4c9faa372298"
+        }
+      },
+      "events": {
+        "path": "ponytail/run/events.jsonl",
+        "sha256": "sha256:39f6724f47699b380c9a2a29953bcc8062c1e6bbb74c020988ea3307d0db83da"
+      },
+      "quality": "ungraded"
+    }
+  }
+}

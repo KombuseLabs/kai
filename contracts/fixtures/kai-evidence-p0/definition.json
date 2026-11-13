@@ -1,0 +1,19 @@
+{
+  "format": "kai-report-definition/1",
+  "declaration": "before-execution",
+  "declared_at": 1794609398147,
+  "question": {
+    "text": "Does the declared add-on reduce elapsed time on this fixed task?",
+    "hypothesis": "The with arm will finish faster on the same frozen input.",
+    "primary_metric": "elapsed_ms",
+    "target": {
+      "effect": "ratio",
+      "operator": "at-most",
+      "value": 0.95
+    },
+    "quality_requirement": "none",
+    "analysis_ref": null
+  },
+  "cohort": null,
+  "assignment": null
+}

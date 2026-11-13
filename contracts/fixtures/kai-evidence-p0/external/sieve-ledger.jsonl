@@ -1,0 +1,1 @@
+{"v":"1","ts":"2026-11-13T00:00:00.000Z","session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","prompt_id":"prompt-fixture-1","agent_id":null,"event":"PostToolUse","tool":"Bash","rule":"bash-spill","tool_use_id":"tool-use-fixture-1","output_bytes":1200,"stderr_bytes":0,"persisted":false,"action":"rewrite","shown_bytes":512,"spilled_bytes":688}

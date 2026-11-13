@@ -1,0 +1,6 @@
+{"format":"kai-agent-session/1","seq":1,"kind":"ready","session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"agent":"claude-code","version":"2.1.323","sdk":"0.3.323","node":"22.22.0"}}
+{"format":"kai-agent-session/1","seq":2,"kind":"event","turn":1,"session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"type":"system","subtype":"init","tools":["Bash","Read"]}}
+{"format":"kai-agent-session/1","seq":3,"kind":"event","turn":1,"session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"type":"assistant","tool_use_id":"tool-use-fixture-1","name":"Bash","input":{"command":"printf fixture"}}}
+{"format":"kai-agent-session/1","seq":4,"kind":"event","turn":1,"session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-use-fixture-1","content":"fixture"}]}}}
+{"format":"kai-agent-session/1","seq":5,"kind":"result","turn":1,"session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"type":"result","subtype":"success","usage":{"input_tokens":2,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":2}}}
+{"format":"kai-agent-session/1","seq":6,"kind":"closed","session_id":"db98ece2-dcd8-4935-b109-b41e76e84b1b","payload":{"reason":"fixture-complete"}}

@@ -1,9 +1,10 @@
 # kai-report-evidence/1
 
 `agent compare` and `run <name>` publish `report-evidence.json` after the
-terminal [pair record](kai-pair-1.md). It binds that pair and the available
-agent records to their exact bytes. It contains no copied metrics, grade,
-analysis or permission to publish. The handoff and its source files stay local.
+terminal [pair record](kai-pair-1.md). This is the implemented, immutable
+`kai-report-evidence/1` contract. It binds that pair and available agent
+records to their exact bytes. It contains no copied metrics, grade, analysis
+or permission to publish. The handoff and its source files stay local.
 
 Publication writes and flushes a temporary file, then creates the destination
 atomically without replacing an existing file. A retry reuses the original
@@ -24,7 +25,7 @@ by the reader. Integers are nonnegative; timestamps are UTC Unix milliseconds.
 | `capture` | Writer uses `producer-terminal`; reader also accepts explicitly imported `retrospective` evidence |
 | `recorded_at` | Capture time, at or after the pair's finish time |
 | `pair` | File reference to exactly `pair.json` |
-| `definition` | Currently null; nonnull definitions require a future reader capability |
+| `definition` | Required and null in the implemented v1 writer and Reporter 0.9 reader |
 | `arms` | Exactly `without` and `with`, independent of their directory labels |
 
 Each arm contains exactly `agent`, `agent_missing`, `execution_os`, `quality`.
@@ -32,9 +33,13 @@ Each arm contains exactly `agent`, `agent_missing`, `execution_os`, `quality`.
 `agent_missing` is null for a present record, otherwise `not-started` when
 that arm never started or `not-written` when it started without leaving a
 record. `unavailable-in-history` is reserved for retrospective imports.
-A completed arm must have an agent record. The current writer and reader
-use `execution_os: null` and `quality: "ungraded"`. Successful execution
-is not evidence of correctness or a measured operating system.
+A completed arm must have an agent record. The v1 writer and reader require
+`execution_os: null` and `quality: "ungraded"`. A non-null definition or
+platform record is rejected by the v1 reader. Successful execution is not
+evidence of correctness or a measured operating system. New source references
+and non-null context/platform values belong to
+[`kai-report-evidence/2`](kai-report-evidence-2.md); they are not additive
+changes to v1.
 
 A file reference is exactly `{path, sha256}`: a relative path to a regular
 file under the result root, with no symlinks or traversal, and `sha256:`
@@ -78,5 +83,7 @@ changes the sample id or the first collected metric snapshot. Late evidence
 can add local provenance when the measured content is unchanged; changed
 metrics are refused. No new execution is counted. The handoff checksum,
 pair checksum, capture time and path appear only in `eval-local/2`; the
-portable `eval-report/2` remains unchanged. Neither this writer nor this
-reader implements experiment definitions, platform observations or grading.
+portable `eval-report/2` remains unchanged. This v1 writer and reader do not
+implement event-stream references, experiment definitions, platform
+observations or grading. Existing byte-exact v1 fixtures remain mandatory
+reader compatibility cases after v2 is introduced.

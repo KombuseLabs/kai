@@ -1,0 +1,11 @@
+{
+  "format": "kai-execution-platform/1",
+  "run_id": "3448ef124d85d68ba4927a90565aac35",
+  "role": "with",
+  "family": "linux",
+  "architecture": "x86_64",
+  "observed_by": "launcher",
+  "backend": "firecracker",
+  "kernel": "sha256:e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2",
+  "firecracker": "sha256:b33f46cd6d88834cf6a4f8d184f08f219809c636236bffd286d233a60602a2ba"
+}

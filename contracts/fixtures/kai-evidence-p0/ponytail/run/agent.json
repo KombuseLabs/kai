@@ -1,0 +1,277 @@
+{
+  "activation": "/ponytail full",
+  "addons": [
+    {
+      "commit": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+      "dir": "/opt/kai/addons/ponytail",
+      "files": [
+        {
+          "length": 3496,
+          "path": "/opt/kai/addons/ponytail/skills/ponytail/SKILL.md",
+          "sha256": "sha256:9badd22a32e19cb884e46dfa8d3aae82bb81dfa5484105b8b4f0262df823a509",
+          "source": "skills/ponytail/SKILL.md"
+        },
+        {
+          "length": 1071,
+          "path": "/opt/kai/addons/ponytail/LICENSE",
+          "sha256": "sha256:fb1bc6909ac3ef82d5c22106e32ef682b0cff66788fa915fb9b53b15c9d2f3ab",
+          "source": "LICENSE"
+        }
+      ],
+      "format": "kai-addon-layer/1",
+      "inventory": "sha256:c88deda6486a488ed9d397a97278a1906c8bde2733f94f7176c94e59a7e710cd",
+      "key": "sha256:c97f3ab901dce40fd3fbb17ed08a2b8a2d177ddd457e15210d1cc6949166e28e",
+      "layer": "sha256:97a440b5f9907c01644bade0d7d719a6e44a6d57495dc819a743f50fec7a0837",
+      "layer_len": 4096,
+      "licence": "MIT",
+      "licence_file": "/opt/kai/addons/ponytail/LICENSE",
+      "mksquashfs": "4.7.5",
+      "name": "ponytail",
+      "packing": [
+        "-all-root",
+        "-comp",
+        "zstd",
+        "-noappend",
+        "-no-xattrs",
+        "-repro-time",
+        "0"
+      ],
+      "repository": "https://github.com/DietrichGebert/ponytail",
+      "written": [
+        {
+          "length": 106,
+          "path": "/opt/kai/addons/ponytail/.claude-plugin/plugin.json",
+          "sha256": "sha256:8b01dd064707c66769a71aa1650b5155b8ecd8a389628a8ee14eaafbe32fc46d"
+        }
+      ]
+    }
+  ],
+  "agent": "claude-code",
+  "cancelled_turn": null,
+  "format": "kai-agent-run/1",
+  "layer": {
+    "agent": "claude-code",
+    "binary": "sha256:604d29a6869409106b6a1110bdadcc8b72e8654a5a865d23258f938a696e348e",
+    "binary_len": 362435088,
+    "format": "kai-agent-layer/1",
+    "key": "sha256:820e963cd32288da4537113935e49025f1ab14e73d893ce981249678967e10b0",
+    "layer": "sha256:c4b2be6106391ac9877ab28a1303dc9a0f3634ffb3488b74e14de22edea1a434",
+    "layer_len": 194846720,
+    "members": [
+      {
+        "length": 123405064,
+        "path": "/opt/kai/agents/session/node",
+        "sha256": "1bec56ef7cfa9a76f3e0b7c0a87f220eb73f23102b9c0b4c7529a3f7c3ce7c31",
+        "version": "22.22.0"
+      },
+      {
+        "length": 1420658,
+        "path": "/opt/kai/agents/session/sdk.mjs",
+        "sha256": "9350483cd0434c18c13745d7ca2630acd4ef29c6c2f0038b5a061f7e8c0fdb78",
+        "version": "0.3.323"
+      },
+      {
+        "length": 7527,
+        "path": "/opt/kai/agents/session/wrapper.mjs",
+        "sha256": "3bb33991fb5818d8be4f659b54a2157ad0e46b4854420f3dd7dcf3a5149c0422",
+        "version": "kai-agent-session/1"
+      }
+    ],
+    "mksquashfs": "4.7.5",
+    "packing": [
+      "-all-root",
+      "-comp",
+      "zstd",
+      "-noappend",
+      "-no-xattrs",
+      "-repro-time",
+      "0"
+    ],
+    "path": "/opt/kai/agents/session/claude",
+    "version": "2.1.323"
+  },
+  "max_turns": 3,
+  "mock": true,
+  "model": "fixture",
+  "node": "22.22.0",
+  "outcome": "closed",
+  "reason": null,
+  "route_port": 36073,
+  "sdk": "0.3.323",
+  "session_id": "db98ece2-dcd8-4935-b109-b41e76e84b1b",
+  "tools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Bash",
+    "Glob",
+    "Grep"
+  ],
+  "turns": [
+    {
+      "commands_invoked": [
+        "/ponytail:ponytail"
+      ],
+      "id": 1,
+      "outcome": "answered",
+      "prompt_sha256": "62f2ebd457e9151d306c4d44de3e3847c3fbd3decb1f139a0a9d721ebc4c7862",
+      "result": {
+        "api_error_status": null,
+        "duration_api_ms": 50,
+        "duration_ms": 167,
+        "fast_mode_disabled_reason": "sdk_opt_in_required",
+        "fast_mode_state": "off",
+        "first_content_frame_ms": 99,
+        "interrupted": false,
+        "is_error": false,
+        "modelUsage": {
+          "fixture": {
+            "cacheCreationEphemeral1hInputTokens": 0,
+            "cacheCreationEphemeral5mInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "fixture",
+            "contextWindow": 1000000,
+            "costBasis": "unknown",
+            "inputTokens": 2,
+            "maxOutputTokens": 32000,
+            "outputTokens": 2,
+            "provider": "firstParty",
+            "thinkingTokens": 0,
+            "webSearchRequests": 0
+          }
+        },
+        "model_usage_since_last_result": {
+          "fixture": {
+            "cacheCreationEphemeral1hInputTokens": 0,
+            "cacheCreationEphemeral5mInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "canonicalModel": "fixture",
+            "contextWindow": 1000000,
+            "costBasis": "unknown",
+            "inputTokens": 2,
+            "maxOutputTokens": 32000,
+            "outputTokens": 2,
+            "provider": "firstParty",
+            "thinkingTokens": 0,
+            "webSearchRequests": 0
+          }
+        },
+        "num_turns": 2,
+        "permission_denials": [],
+        "queued_turn_count": 0,
+        "result": "Created with result.",
+        "result_index": 0,
+        "safety_stops": 0,
+        "session_id": "db98ece2-dcd8-4935-b109-b41e76e84b1b",
+        "stop_reason": "end_turn",
+        "subagent_stats": {
+          "by_type": {},
+          "completed": 0,
+          "failed": 0,
+          "killed": {
+            "parent": 0,
+            "system": 0,
+            "user": 0
+          },
+          "max_depth": 0,
+          "refused": {
+            "budget": 0,
+            "concurrency_limit": 0,
+            "depth_limit": 0
+          },
+          "requested": {
+            "background": 0,
+            "foreground": 0,
+            "unset": 0
+          },
+          "spawned": 0,
+          "spawned_by_subagents": 0,
+          "started_in_background": 0
+        },
+        "subtype": "success",
+        "terminal_reason": "completed",
+        "time_to_request_ms": 82,
+        "ttft_ms": 101,
+        "ttft_stream_ms": 99,
+        "type": "result",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "fallback_credit": null,
+          "inference_geo": "",
+          "input_tokens": 2,
+          "iterations": [],
+          "output_tokens": 2,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        },
+        "uuid": "4bb2a3ba-9d80-4d7d-8096-ccb8d7684500"
+      },
+      "skills_offered": [
+        "deep-research",
+        "ponytail:ponytail",
+        "dataviz",
+        "update-config",
+        "verify",
+        "debug",
+        "code-review",
+        "simplify",
+        "batch",
+        "fewer-permission-prompts",
+        "doctor",
+        "loop",
+        "claude-api",
+        "workflow-authoring",
+        "run",
+        "run-skill-generator",
+        "plugin-authoring"
+      ],
+      "tools_offered": [
+        "Bash",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ]
+    }
+  ],
+  "version": "2.1.323",
+  "vm": {
+    "command_ms": 1338,
+    "cpus": 2,
+    "exit_code": 0,
+    "firecracker": "sha256:b33f46cd6d88834cf6a4f8d184f08f219809c636236bffd286d233a60602a2ba",
+    "format": "kai-vm-run/1",
+    "image": {
+      "file": "sha256:a4c313b717023641af81cba9e73e49595c01697f5ff3f5c5b56701ceb066c824",
+      "id": "sha256:ad6793da321d49ac7547ace732e2340cba5c98ea1542c5fb2ce2360365c22df8",
+      "recipe": "rust"
+    },
+    "initramfs": "sha256:fcf23e74f86112c94c4251cf87d416b15cd84b1ec5558ef22f413a4ade64ad6f",
+    "kernel": "sha256:e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2",
+    "layers": [
+      "sha256:c4b2be6106391ac9877ab28a1303dc9a0f3634ffb3488b74e14de22edea1a434",
+      "sha256:97a440b5f9907c01644bade0d7d719a6e44a6d57495dc819a743f50fec7a0837"
+    ],
+    "memory_mib": 4096,
+    "outcome": "exited",
+    "output_complete": true,
+    "timeout_s": 600,
+    "tree_out": true,
+    "wall_ms": 1772
+  }
+}

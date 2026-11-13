@@ -1,0 +1,113 @@
+{
+  "format": "kai-contract-fixtures/1",
+  "base": "report-evidence.json",
+  "cases": [
+    {
+      "id": "complete-v2-pair",
+      "mutation": null,
+      "expect": {
+        "pair_id": "pair.run_id",
+        "arms": [
+          "without",
+          "with"
+        ],
+        "identity_join": "run_id + role + session_id",
+        "source_state": "complete",
+        "trace_records": "all contiguous seq 1..6; closed",
+        "timing": "unknown when no source timestamp exists",
+        "quality": "ungraded"
+      }
+    },
+    {
+      "id": "l1-unknown-exposure",
+      "mutation": {
+        "agent.commands_invoked": "null",
+        "external.sieve-ledger.jsonl": "absent"
+      },
+      "expect": {
+        "exposure": "unknown",
+        "not_exposed": false
+      }
+    },
+    {
+      "id": "l2-hypothesis-retained",
+      "mutation": null,
+      "expect": {
+        "project_question_hypothesis": "The with arm will finish faster on the same frozen input.",
+        "hypothesis_is_result": false
+      }
+    },
+    {
+      "id": "partial-untimed-trace",
+      "mutation": {
+        "events.seq": "remove 3",
+        "events.timestamp": "still absent"
+      },
+      "expect": {
+        "source_state": "partial",
+        "parser_coverage": "5 of 6 expected sequence values; diagnostic required",
+        "timing": null
+      }
+    },
+    {
+      "id": "observed-zero-counter",
+      "mutation": {
+        "usage.cache_read_input_tokens": 0
+      },
+      "expect": {
+        "measure": {
+          "value": 0,
+          "n": 1,
+          "of": 1
+        }
+      }
+    },
+    {
+      "id": "missing-counter",
+      "mutation": {
+        "usage.cache_read_input_tokens": "remove"
+      },
+      "expect": {
+        "measure": {
+          "value": null,
+          "n": 0,
+          "of": 1
+        }
+      }
+    },
+    {
+      "id": "duplicate-proxy-charge",
+      "mutation": {
+        "external.prxy-ledger.jsonl": "duplicate a line with the same spend.id"
+      },
+      "expect": {
+        "cost_usd": null,
+        "reason": "duplicate charge identity"
+      }
+    },
+    {
+      "id": "unsettled-proxy-request",
+      "mutation": {
+        "prxy.spend.recorded": false
+      },
+      "expect": {
+        "cost_usd": null,
+        "reason": "unsettled request; do not substitute reservation"
+      }
+    },
+    {
+      "id": "source-contributors",
+      "mutation": null,
+      "expect": {
+        "contributor_ref_fields": [
+          "source_sha256",
+          "source_line",
+          "byte_start",
+          "byte_end"
+        ],
+        "byte_end": "exclusive",
+        "raw_source": "local-only"
+      }
+    }
+  ]
+}
