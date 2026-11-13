@@ -9,12 +9,14 @@
 //! A value nobody recorded stays `None`; it is never filled in with a
 //! default.
 
+mod access;
 mod issue;
 mod qualification;
 mod repo;
 pub mod study;
 mod ticket;
 
+pub use access::{Access, ActorAccess};
 pub use issue::Issue;
 pub use qualification::{Finding, Outcome, Qualification, Rule, Verdict};
 pub use repo::{IssueId, ParseRepoNameError, RepoName};

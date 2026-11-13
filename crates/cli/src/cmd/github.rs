@@ -23,21 +23,38 @@ pub(crate) enum GithubCommand {
         /// Fetch every issue, not only those changed since the last sync, and remove those GitHub no longer returns
         #[arg(long)]
         full: bool,
+
+        /// Also ask GitHub what access each account that put a label on has to the board now, one request per account
+        #[arg(long)]
+        actor_permissions: bool,
     },
 }
 
 pub(crate) fn run(command: &GithubCommand, context: &Context<'_>) -> Result<(), Failure> {
     match command {
-        GithubCommand::Sync { board, full } => {
+        GithubCommand::Sync {
+            board,
+            full,
+            actor_permissions,
+        } => {
             let board = settings::board(board.as_ref(), context.config).map_err(Failure::Usage)?;
-            sync(context, &board, settings::api(context.config), *full)
+            let api = settings::api(context.config);
+            sync(context, &board, api, *full, *actor_permissions)
         }
     }
 }
 
 /// Fetches `board`'s issues from the API at `api` into the store: all of
-/// them with `full`, else those changed since the last sync.
-fn sync(context: &Context<'_>, board: &RepoName, api: &str, full: bool) -> Result<(), Failure> {
+/// them with `full`, else those changed since the last sync. With
+/// `actor_permissions`, then the access of every account that put a label
+/// on an issue the store holds.
+fn sync(
+    context: &Context<'_>,
+    board: &RepoName,
+    api: &str,
+    full: bool,
+    actor_permissions: bool,
+) -> Result<(), Failure> {
     let store_path = &context.store;
     let mut store = super::store::open(store_path)?;
     let token = match std::env::var(TOKEN_VARIABLE) {
@@ -77,5 +94,27 @@ fn sync(context: &Context<'_>, board: &RepoName, api: &str, full: bool) -> Resul
         fetched.issues.len(),
         store_path.display()
     );
+    if actor_permissions {
+        let actors = store.actors(board).context("cannot read the store")?;
+        let mut answers = Vec::with_capacity(actors.len());
+        for login in actors {
+            let access = context
+                .runtime
+                .block_on(client.access(board, &login))
+                .with_context(|| format!("cannot ask GitHub for the access of {login}"))?;
+            answers.push((login, access));
+        }
+        store
+            .record_access(board, &answers)
+            .context("cannot write the store")?;
+        let unknown = answers
+            .iter()
+            .filter(|(_, access)| matches!(access, ::types::Access::Unknown(_)))
+            .count();
+        println!(
+            "{board}: access of {} label actors asked, {unknown} not told",
+            answers.len()
+        );
+    }
     Ok(())
 }

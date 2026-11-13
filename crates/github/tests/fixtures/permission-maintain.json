@@ -1,0 +1,5 @@
+{
+  "permission": "write",
+  "role_name": "maintain",
+  "user": { "login": "example-maintainer" }
+}

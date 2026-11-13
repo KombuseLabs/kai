@@ -204,7 +204,11 @@ fields are Instruction, Repo, Ref (a full commit sha), Check and Hidden
 tests, and labelled `kai`. `kai github sync` reads the board's issues
 changed since the last sync into the store, `.kai/store.sqlite` beside
 `kai.toml` (`--store` names another); `--full` reads all of them and
-removes those GitHub no longer returns. It never writes to GitHub. The
+removes those GitHub no longer returns. `--actor-permissions` also asks
+GitHub what access each account that put a label on has to the board now,
+one request per account, and keeps the answer, or GitHub's words when it
+does not tell; `kai store status` shows them. The rule `trust-gate` does
+not read them yet. It never writes to GitHub. The
 token is `KAI_GITHUB_TOKEN`, else what `gh auth token` prints; a read-only
 token is enough.
 

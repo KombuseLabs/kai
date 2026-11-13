@@ -177,14 +177,17 @@ or undecided; none is qualified until both are built.
 ## How kai uses it
 
 `kai github sync` fills the store with issues as GitHub said them; with
-`--full` it also removes those GitHub no longer returns. `kai ticket
+`--full` it also removes those GitHub no longer returns, and with
+`--actor-permissions` it asks GitHub what access each account that put a
+label on has to the board now, and keeps the answers: the data the trust
+gate will be judged on. `trust-gate` does not read them yet. `kai ticket
 qualify` reads the issues, makes each a ticket and judges it. Qualifying
 needs no network: it works on what the last sync fetched, and `kai store
 status` says when that was.
 
 ```mermaid
 %% checked against crates/store, crates/github, crates/engine
-%% drawn from cli::cmd::github::sync#96be4668, cli::cmd::ticket::print_qualify#bfc62412
+%% drawn from cli::cmd::github::sync#1465a1e2, cli::cmd::ticket::print_qualify#bfc62412
 sequenceDiagram
     actor You
     participant cli as kai (cli)
@@ -201,6 +204,15 @@ sequenceDiagram
     GitHub-->>gh: issues, labels, labeled events
     gh-->>cli: issues and the next cursor
     cli->>store: record_sync(board, issues, cursor, full)
+    opt --actor-permissions
+        cli->>store: actors(board)
+        loop each account that put a label on
+            cli->>gh: access(board, login)
+            gh->>GitHub: REST, the collaborator's permission
+            gh-->>cli: Known, or Unknown with GitHub's words
+        end
+        cli->>store: record_access(board, answers)
+    end
 
     You->>cli: kai ticket qualify
     cli->>store: issues()

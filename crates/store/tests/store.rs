@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use store::{Error, Store};
-use types::{Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// A path of the test's own for a store file; nothing is there yet.
 fn path(name: &str) -> PathBuf {
@@ -266,4 +266,54 @@ fn a_file_that_is_no_database_is_refused_and_left_alone() {
 
     assert!(matches!(Store::open(&path), Err(Error::Sqlite(_))));
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
+}
+
+#[test]
+fn the_access_of_each_label_actor_is_kept_and_replaced_as_a_whole() {
+    let mut store = Store::in_memory().unwrap();
+    let mut other = issue(2);
+    other.label_events[1].actor = Some("example-triager".to_owned());
+    store
+        .record_sync(&board(), &[issue(1), other], None, false)
+        .unwrap();
+    // The deleted account of issue 1's second event has no login.
+    assert_eq!(
+        store.actors(&board()).unwrap(),
+        ["example-maintainer", "example-triager"]
+    );
+
+    let maintainer = Access::Known {
+        permission: "admin".to_owned(),
+        role: Some("admin".to_owned()),
+    };
+    let triager = Access::Unknown("GitHub answered 404: invented".to_owned());
+    store
+        .record_access(
+            &board(),
+            &[
+                ("example-triager".to_owned(), triager.clone()),
+                ("example-maintainer".to_owned(), maintainer.clone()),
+            ],
+        )
+        .unwrap();
+    let kept = store.access(&board()).unwrap();
+    let pairs: Vec<(&str, &Access)> = kept
+        .iter()
+        .map(|actor| (actor.login.as_str(), &actor.access))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("example-maintainer", &maintainer),
+            ("example-triager", &triager)
+        ]
+    );
+    assert!(kept[0].observed_at.ends_with('Z'));
+
+    store
+        .record_access(&board(), &[("example-maintainer".to_owned(), maintainer)])
+        .unwrap();
+    assert_eq!(store.access(&board()).unwrap().len(), 1);
+    store.clear().unwrap();
+    assert!(store.access(&board()).unwrap().is_empty());
 }

@@ -11,7 +11,7 @@ use super::{Context, Failure};
 pub(crate) enum StoreCommand {
     /// Empties the store: every issue and what it knew of each board's syncs; the next sync fetches everything again
     Reset,
-    /// Says for each board in the store when it was last synced, when last in full, and how many issues it holds
+    /// Says for each board in the store when it was last synced, when last in full, how many issues it holds, and each label actor's access as GitHub told it
     Status,
 }
 
@@ -48,7 +48,8 @@ fn status(path: &Path) -> Result<(), Failure> {
         );
         return Ok(());
     }
-    let boards = open(path)?.boards().context("cannot read the store")?;
+    let store = open(path)?;
+    let boards = store.boards().context("cannot read the store")?;
     if boards.is_empty() {
         println!("{}: no board synced yet", path.display());
     }
@@ -58,6 +59,19 @@ fn status(path: &Path) -> Result<(), Failure> {
             "{}: {} issues, last synced {}, last in full {full}",
             synced.board, synced.issues, synced.last_sync
         );
+        for actor in store
+            .access(&synced.board)
+            .context("cannot read the store")?
+        {
+            let access = match actor.access {
+                ::types::Access::Known { permission, role } => match role {
+                    Some(role) => format!("{permission} (role {role})"),
+                    None => permission,
+                },
+                ::types::Access::Unknown(why) => format!("not told: {why}"),
+            };
+            println!("  {}: {access}, asked {}", actor.login, actor.observed_at);
+        }
     }
     Ok(())
 }

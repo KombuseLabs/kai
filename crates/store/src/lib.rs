@@ -10,6 +10,11 @@
 //! its own never goes in here. The file is no contract; no other program
 //! should read it.
 //!
+//! It also keeps what GitHub said of the access of each account that put
+//! a label on, and when it was asked: the trust gate's data. Each time it
+//! is asked, the answers replace those of before; an access GitHub did not
+//! tell is kept with GitHub's words, never as no access.
+//!
 //! A file that is not kai's store is never emptied, nor changed at all.
 //! kai marks its stores with a SQLite application id and refuses a
 //! database without it that holds tables.
@@ -43,14 +48,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, Row, Transaction, params};
-use types::{Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, ActorAccess, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// Marks a SQLite file as kai's store (`PRAGMA application_id`): "kai1".
 const APPLICATION_ID: i32 = 0x6b61_6931;
 
 /// The schema below. Any change to it raises this number, which empties
 /// every store of an older one when it is next opened.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// How long a command waits for another process that holds the file.
 const BUSY: Duration = Duration::from_secs(5);
@@ -91,6 +96,16 @@ CREATE TABLE label_event (
     actor    TEXT,
     at       TEXT    NOT NULL,
     PRIMARY KEY (board, number, position)
+) STRICT;
+CREATE TABLE actor_access (
+    board       TEXT NOT NULL,
+    login       TEXT NOT NULL,
+    permission  TEXT,
+    role        TEXT,
+    unknown     TEXT,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (board, login),
+    CHECK ((permission IS NULL) <> (unknown IS NULL))
 ) STRICT;
 CREATE TABLE sync_state (
     board          TEXT NOT NULL PRIMARY KEY,
@@ -264,7 +279,10 @@ impl Store {
     pub fn clear(&mut self) -> Result<usize, Error> {
         let tx = self.conn.transaction()?;
         let removed = tx.execute("DELETE FROM issue", [])?;
-        tx.execute_batch("DELETE FROM label; DELETE FROM label_event; DELETE FROM sync_state;")?;
+        tx.execute_batch(
+            "DELETE FROM label; DELETE FROM label_event; DELETE FROM actor_access;
+             DELETE FROM sync_state;",
+        )?;
         tx.commit()?;
         Ok(removed)
     }
@@ -281,6 +299,73 @@ impl Store {
             )
             .optional()?
             .flatten())
+    }
+
+    /// Every account that put a label on an issue of `board` the store
+    /// holds, by login; a deleted account, which has none, is left out.
+    pub fn actors(&self, board: &RepoName) -> Result<Vec<String>, Error> {
+        Ok(self
+            .conn
+            .prepare(
+                "SELECT DISTINCT actor FROM label_event
+                 WHERE board = ?1 AND actor IS NOT NULL ORDER BY actor",
+            )?
+            .query_map([board.to_string()], |row| row.get(0))?
+            .collect::<Result<_, _>>()?)
+    }
+
+    /// Records what GitHub said now of each account's access to `board`,
+    /// in place of everything it said before for that board.
+    pub fn record_access(
+        &mut self,
+        board: &RepoName,
+        answers: &[(String, Access)],
+    ) -> Result<(), Error> {
+        let board = board.to_string();
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM actor_access WHERE board = ?1", [&board])?;
+        for (login, access) in answers {
+            let (permission, role, unknown) = match access {
+                Access::Known { permission, role } => (Some(permission), role.as_ref(), None),
+                Access::Unknown(why) => (None, None, Some(why)),
+            };
+            tx.execute(
+                &format!(
+                    "INSERT INTO actor_access (board, login, permission, role, unknown, observed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, {NOW})"
+                ),
+                params![board, login, permission, role, unknown],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// What GitHub said last of the access of each account to `board`, by
+    /// login.
+    pub fn access(&self, board: &RepoName) -> Result<Vec<ActorAccess>, Error> {
+        Ok(self
+            .conn
+            .prepare(
+                "SELECT login, permission, role, unknown, observed_at FROM actor_access
+                 WHERE board = ?1 ORDER BY login",
+            )?
+            .query_map([board.to_string()], |row| {
+                let permission: Option<String> = row.get(1)?;
+                let access = match permission {
+                    Some(permission) => Access::Known {
+                        permission,
+                        role: row.get(2)?,
+                    },
+                    None => Access::Unknown(row.get(3)?),
+                };
+                Ok(ActorAccess {
+                    login: row.get(0)?,
+                    access,
+                    observed_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?)
     }
 
     /// Every board the store has a sync of, by name.

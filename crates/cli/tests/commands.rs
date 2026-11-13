@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use store::Store;
-use types::{Issue, IssueId, IssueState};
+use types::{Access, Issue, IssueId, IssueState};
 
 /// A fresh directory of the test's own, outside the repository so that no
 /// `.env` or `kai.toml` above it is found.
@@ -164,6 +164,48 @@ fn store_status_says_per_board_when_it_was_synced() {
     assert!(
         out.starts_with("example-org/example-board: 3 issues, last synced 20")
             && out.ends_with(", last in full never\n"),
+        "{out}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn store_status_shows_each_label_actors_access_as_github_told_it() {
+    let dir = dir("status-access");
+    store_with_tickets(&dir);
+    let board = "example-org/example-board".parse().unwrap();
+    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    store
+        .record_access(
+            &board,
+            &[
+                (
+                    "example-maintainer".to_owned(),
+                    Access::Known {
+                        permission: "write".to_owned(),
+                        role: Some("maintain".to_owned()),
+                    },
+                ),
+                (
+                    "example-stranger".to_owned(),
+                    Access::Unknown("GitHub answered 404: invented".to_owned()),
+                ),
+            ],
+        )
+        .unwrap();
+    drop(store);
+
+    let output = kai(&dir, &["store", "status"], &[]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(
+        lines[1].starts_with("  example-maintainer: write (role maintain), asked 20"),
+        "{out}"
+    );
+    assert!(
+        lines[2].starts_with("  example-stranger: not told: GitHub answered 404: invented, asked"),
         "{out}"
     );
     std::fs::remove_dir_all(dir).unwrap();

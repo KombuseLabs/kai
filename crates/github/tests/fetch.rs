@@ -1,12 +1,13 @@
 //! Fetching a board from a mock server that stands in for GitHub, with
-//! invented answers: pages, the cursor, the token, and what GitHub refuses.
+//! invented answers: pages, the cursor, the token, an account's access,
+//! and what GitHub refuses.
 
 use std::path::Path;
 
 use github::{Client, Error};
 use secrecy::SecretString;
 use serde_json::{Value, json};
-use types::{IssueState, LabelEvent, RepoName};
+use types::{Access, IssueState, LabelEvent, RepoName};
 use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -176,4 +177,88 @@ fn plain_http_is_refused_unless_it_stays_on_this_machine() {
     ] {
         assert!(Client::new(token(), api).is_ok(), "{api}");
     }
+}
+
+/// Answers the permission of `login` on the board with `status` and the
+/// fixture `answer`, exactly once, and only with the token.
+async fn permission(server: &MockServer, login: &str, status: u16, answer: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/repos/example-org/example-board/collaborators/{login}/permission"
+        )))
+        .and(header("authorization", format!("Bearer {TOKEN}").as_str()))
+        .respond_with(
+            ResponseTemplate::new(status).set_body_raw(fixture(answer), "application/json"),
+        )
+        .expect(1)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn an_accounts_access_is_read_with_its_role() {
+    let github = MockServer::start().await;
+    permission(
+        &github,
+        "example-maintainer",
+        200,
+        "permission-maintain.json",
+    )
+    .await;
+
+    let access = client(&github)
+        .access(&board(), "example-maintainer")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        access,
+        Access::Known {
+            permission: "write".to_owned(),
+            role: Some("maintain".to_owned()),
+        }
+    );
+}
+
+#[tokio::test]
+async fn an_access_github_does_not_tell_is_unknown_with_its_words() {
+    let github = MockServer::start().await;
+    permission(
+        &github,
+        "example-stranger",
+        404,
+        "permission-not-found.json",
+    )
+    .await;
+
+    let access = client(&github)
+        .access(&board(), "example-stranger")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        access,
+        Access::Unknown("GitHub answered 404: example-stranger is not a user".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn a_login_stays_one_part_of_the_path() {
+    let github = MockServer::start().await;
+    // Nothing is mounted: a request to any other path answers 404.
+    Mock::given(method("GET"))
+        .and(path(
+            "/repos/example-org/example-board/collaborators/..%2F..%2Fx/permission",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("permission-maintain.json"), "application/json"),
+        )
+        .expect(1)
+        .mount(&github)
+        .await;
+
+    let access = client(&github).access(&board(), "../../x").await.unwrap();
+
+    assert!(matches!(access, Access::Known { .. }), "{access:?}");
 }

@@ -7,6 +7,11 @@
 //!   whole; reading it as the kai ticket form is `engine::ticket`'s. More
 //!   than 100 labels or labeled events are not fetched, and the issue says
 //!   so ([`Issue::labels_complete`], [`Issue::label_events_complete`]).
+//! - **Who may write**: [`Client::access`] asks GitHub's REST API what
+//!   access an account has to a board (`GET
+//!   /repos/{owner}/{repo}/collaborators/{login}/permission`), one request
+//!   per account. An answer that is not a success is kept as
+//!   [`Access::Unknown`] with GitHub's words, not as an error.
 //! - **From a cursor**: [`Client::fetch_board`] takes the time the last
 //!   sync recorded and asks only for issues changed since then, and says
 //!   where the next sync starts.
@@ -24,7 +29,7 @@ use secrecy::ExposeSecret as _;
 pub use secrecy::SecretString;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use types::{Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// The API of github.com.
 pub const API: &str = "https://api.github.com";
@@ -71,6 +76,8 @@ pub struct Client {
     http: reqwest::Client,
     /// Where GraphQL requests go: `<api>/graphql`.
     graphql: String,
+    /// The API's address, without a trailing `/`.
+    api: String,
     token: SecretString,
 }
 
@@ -102,6 +109,7 @@ impl Client {
         Ok(Client {
             http,
             graphql: format!("{}/graphql", api.trim_end_matches('/')),
+            api: api.trim_end_matches('/').to_owned(),
             token,
         })
     }
@@ -152,6 +160,54 @@ impl Client {
         Ok(Fetched { issues, since })
     }
 
+    /// What access `login` has to `board`, as GitHub answers now. An
+    /// answer that is not a success (an account that is no collaborator,
+    /// a token that may not ask) is [`Access::Unknown`] with GitHub's
+    /// status and message; only a request that got no answer, or an answer
+    /// kai cannot read, is an error.
+    pub async fn access(&self, board: &RepoName, login: &str) -> Result<Access, Error> {
+        let mut url = reqwest::Url::parse(&self.api).map_err(|_| Error::Api(self.api.clone()))?;
+        // Each part is encoded as one segment, so a login cannot reach
+        // another path.
+        url.path_segments_mut()
+            .map_err(|()| Error::Api(self.api.clone()))?
+            .pop_if_empty()
+            .extend([
+                "repos",
+                board.owner(),
+                board.name(),
+                "collaborators",
+                login,
+                "permission",
+            ]);
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(self.token.expose_secret())
+            .header("accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
+        if !status.is_success() {
+            return Ok(Access::Unknown(format!(
+                "GitHub answered {}: {}",
+                status.as_u16(),
+                message(&body)
+            )));
+        }
+        let answer: wire::Permission =
+            serde_json::from_slice(&body).map_err(|err| Error::Answer(err.to_string()))?;
+        Ok(Access::Known {
+            permission: answer.permission,
+            role: answer.role_name,
+        })
+    }
+
     /// Sends one GraphQL request and returns its `data`. An HTTP error, or
     /// an answer with `errors`, is an error, even if it also holds data.
     async fn query<T: DeserializeOwned>(&self, request: &Request<'_>) -> Result<T, Error> {
@@ -169,13 +225,9 @@ impl Client {
             .await
             .map_err(|err| Error::Transport(http::error_chain(&err)))?;
         if !status.is_success() {
-            let message = match serde_json::from_slice::<wire::Message>(&body) {
-                Ok(answer) => answer.message,
-                Err(_) => String::from_utf8_lossy(&body).chars().take(200).collect(),
-            };
             return Err(Error::Status {
                 status: status.as_u16(),
-                message,
+                message: message(&body),
             });
         }
         let answer: wire::Answer<T> =
@@ -188,6 +240,15 @@ impl Client {
         answer
             .data
             .ok_or_else(|| Error::Answer("neither data nor errors".to_owned()))
+    }
+}
+
+/// What GitHub says went wrong, from the body of an error: its
+/// `message`, else the first 200 characters of the body.
+fn message(body: &[u8]) -> String {
+    match serde_json::from_slice::<wire::Message>(body) {
+        Ok(answer) => answer.message,
+        Err(_) => String::from_utf8_lossy(body).chars().take(200).collect(),
     }
 }
 
@@ -247,6 +308,14 @@ mod wire {
     #[derive(Deserialize)]
     pub(super) struct Message {
         pub(super) message: String,
+    }
+
+    /// The answer on a collaborator's permission (REST, snake case).
+    #[derive(Deserialize)]
+    pub(super) struct Permission {
+        pub(super) permission: String,
+        #[serde(default)]
+        pub(super) role_name: Option<String>,
     }
 
     #[derive(Deserialize)]
