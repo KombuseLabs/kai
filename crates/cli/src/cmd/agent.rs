@@ -133,7 +133,7 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
         .run_dir
         .clone()
         .unwrap_or_else(|| ::vm::new_run_dir(&cache, Some("agent")));
-    let mut options = session_args.profile.options(run_dir)?;
+    let mut options = session_args.profile.options(run_dir, context)?;
     options.tree_out = session_args.tree_out.clone();
     options.activation = session_args.activation.clone();
     let passed = context.runtime.block_on(async {
@@ -160,16 +160,12 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
 
 impl ProfileArgs {
     /// The same model, limits and input layers for every use of the profile.
-    fn options(&self, run_dir: PathBuf) -> Result<::agent::session::Options, Failure> {
-        // Never delegate env parsing to clap: its diagnostics can echo a secret.
-        let endpoint = std::env::var("ANTHROPIC_BASE_URL").map_err(|_| {
-            Failure::Usage(anyhow::anyhow!(
-                "ANTHROPIC_BASE_URL must name a loopback model route"
-            ))
-        })?;
-        let key = std::env::var("ANTHROPIC_API_KEY").ok();
-        let route = ::agent::session::Route::new(&endpoint, key.as_deref(), self.mock)
-            .map_err(|e| Failure::Usage(e.into()))?;
+    fn options(
+        &self,
+        run_dir: PathBuf,
+        context: &Context<'_>,
+    ) -> Result<::agent::session::Options, Failure> {
+        let route = super::proxy::route(context, self.mock).map_err(Failure::Usage)?;
         let mut options = ::agent::session::Options::new(self.model.clone(), route, run_dir);
         options.image = self.image.clone();
         options.tree = self.tree.clone();

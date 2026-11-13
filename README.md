@@ -30,18 +30,43 @@ cargo run -- run ponytail           # the named pair in .runs/ponytail/task.json
 
 ### One task, with and without an extra prompt
 
-Save a comparison as `<name>/task.json` and run it by name:
+Save a comparison as `<name>/task.json`. In the first terminal, start the
+proxy and leave it running:
 
 ```sh
-kai run ponytail
+./tools/start-proxy
 ```
+
+In a second terminal in this repository:
+
+```sh
+cargo run -- run ponytail
+```
+
+The script builds the current binary, obtains the provider credential
+through the existing `kai secrets exec` command on PATH, and starts
+`prxy run` with `~/.prxy/spend.toml` on a free loopback port. It requires
+that existing secrets command, a credential grant for prxy, and the
+policy to be prepared. No token needs to be copied. Ctrl-C in the first
+terminal stops the proxy. Each invocation of `run` still starts a fresh pair.
+
+The private handoff defaults to `.kai/proxy.json`, configurable as
+`[proxy] connection_file` relative to `kai.toml`. It holds only the
+loopback endpoint and temporary proxy placeholder, never a provider key.
+Kai accepts it only while its publishing process holds the file lock;
+normal shutdown removes it, and a stale file after a crash is refused.
+An explicit `ANTHROPIC_BASE_URL` selects the environment route and requires
+its matching `ANTHROPIC_API_KEY`; remove old endpoint exports to use the
+automatic connection. A key alone (for example from `.env`) is ignored
+when using the handoff; it is never mixed with the published endpoint.
+Mock mode always requires its explicit environment route.
 
 The included [.runs/ponytail/task.json](.runs/ponytail/task.json) compares the same
 HTML-calculator task on Sonnet 5.5, once plain and once with the pinned
 Ponytail add-on activated by `/ponytail full`. Both run in parallel. The
 runtime, image and add-on must already be prepared (`kai agent fetch`,
 `kai vm image build rust`, `kai agent fetch --addon ponytail`), and the
-external proxy route is supplied as for `agent run`.
+external proxy route is supplied by the running script or the environment.
 
 The lookup directory is configurable in `kai.toml`:
 
@@ -137,8 +162,8 @@ both runs finish successfully. Ctrl-C or SIGTERM stops both VMs and keeps
 the records already written; an interrupted run may have no exported tree.
 
 As with `agent run`, first fetch the runtime and build the image, then
-supply the external proxy's `ANTHROPIC_BASE_URL` and placeholder
-`ANTHROPIC_API_KEY`. The proxy owns spending approval and limits. `--mock`
+start `tools/start-proxy` or supply the external proxy's `ANTHROPIC_BASE_URL`
+and placeholder `ANTHROPIC_API_KEY`. The proxy owns spending approval and limits. `--mock`
 uses a local fake API instead. Parallel runs, separate generated files,
 prompt delivery and partial failure are tested with that fake API in
 real microVMs. A live HTML-calculator pair has also completed through the
@@ -297,9 +322,9 @@ The guest sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000` explicitly for each
 model request. This keeps the output ceiling independent of model defaults;
 the external proxy still owns spending approval and limits.
 
-Both commands require `ANTHROPIC_BASE_URL` naming an explicit loopback HTTP
-port. Normal mode accepts only a proxy-issued placeholder of the supported
-format in `ANTHROPIC_API_KEY`; `--mock` discards that value and uses a fixed
+Both commands use the private proxy handoff or `ANTHROPIC_BASE_URL` naming
+an explicit loopback HTTP port. Normal mode accepts only a proxy-issued
+placeholder of the supported format; `--mock` discards the environment key and uses a fixed
 dummy against an explicitly supplied local fake endpoint. Approval, spending
 limits and provider credentials belong to the external proxy. A simple
 HTML comparison has completed with a real model. Against a local fake API that calls

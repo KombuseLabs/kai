@@ -96,6 +96,7 @@ enum Entry {
     Direct,
     Named,
     Ponytail,
+    Handoff,
 }
 
 async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
@@ -154,7 +155,8 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         }
     });
     let mut cmd = tokio::process::Command::from(command(&dir));
-    cmd.env("ANTHROPIC_BASE_URL", endpoint).kill_on_drop(true);
+    cmd.env("ANTHROPIC_BASE_URL", &endpoint).kill_on_drop(true);
+    let mut publisher = None;
     if matches!(entry, Entry::Direct) {
         cmd.args(["agent", "compare", "--cache"]).arg(&cache).args([
             "--model",
@@ -182,7 +184,7 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         let mut definition = json!({"model":"fixture", "prompt":"TASK_FIXTURE: build a calculator",
             "extra_prompt_file":"../../extra.txt", "tree":"../../source", "max_turns":3, "sequential":sequential,
             "arms":{"without":"plain", "with":"ponytail"}});
-        if matches!(entry, Entry::Ponytail) {
+        if matches!(entry, Entry::Ponytail | Entry::Handoff) {
             definition
                 .as_object_mut()
                 .unwrap()
@@ -197,8 +199,31 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         .unwrap();
         cmd.current_dir(dir.join("below"))
             .args(["run", "fixture", "--cache"])
-            .arg(&cache)
-            .arg("--mock");
+            .arg(&cache);
+        if matches!(entry, Entry::Handoff) {
+            std::fs::write(dir.join(".env"), "ANTHROPIC_API_KEY=invented-unused-key\n").unwrap();
+            let mut proxy = tokio::process::Command::from(command(&dir));
+            let mut child = proxy
+                .arg("proxy")
+                .env("ANTHROPIC_BASE_URL", &endpoint)
+                .env("ANTHROPIC_API_KEY", format!("prxy-{}", "a".repeat(32)))
+                .stdout(std::process::Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            let mut output = tokio::io::BufReader::new(child.stdout.take().unwrap());
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(10), output.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(line.starts_with("Proxy ready"), "{line}");
+            publisher = Some(child);
+            cmd.env_remove("ANTHROPIC_BASE_URL")
+                .env_remove("ANTHROPIC_API_KEY");
+        } else {
+            cmd.arg("--mock");
+        }
     }
     let out: Output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
         .await
@@ -206,6 +231,17 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         .unwrap();
     server.abort();
     assert_eq!(out.status.success(), !fail_with, "{out:?}");
+    if let Some(mut publisher) = publisher {
+        assert!(
+            Command::new("kill")
+                .args(["-TERM", &publisher.id().unwrap().to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(publisher.wait().await.unwrap().success());
+        assert!(!dir.join(".kai/proxy.json").exists());
+    }
     let output = if matches!(entry, Entry::Direct) {
         dir.join("results")
     } else {
@@ -254,7 +290,7 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
             format!("Created {name} result.")
         );
         let prompt = std::fs::read_to_string(result.join("run/prompt-1.md")).unwrap();
-        if matches!(entry, Entry::Ponytail) {
+        if matches!(entry, Entry::Ponytail | Entry::Handoff) {
             assert_eq!(prompt.starts_with("/ponytail full\n"), name == "with");
             assert_eq!(
                 record["addons"].as_array().unwrap().len(),
@@ -312,6 +348,12 @@ async fn a_named_run_resolves_config_and_file_paths_from_a_subdirectory() {
 #[ignore = "requires KVM, KAI_AGENT_TEST_CACHE and cached Ponytail; local fake API only"]
 async fn a_named_ponytail_run_activates_the_addon_only_on_one_side() {
     vm_pair(false, false, Entry::Ponytail).await;
+}
+
+#[tokio::test]
+#[ignore = "requires KVM, KAI_AGENT_TEST_CACHE and cached Ponytail; local fake API only"]
+async fn a_separate_terminal_uses_the_proxy_handoff_without_environment() {
+    vm_pair(false, false, Entry::Handoff).await;
 }
 
 #[test]

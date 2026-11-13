@@ -33,6 +33,30 @@ pub(crate) struct Config {
     vm: VmConfig,
     #[serde(default)]
     runs: RunsConfig,
+    #[serde(default)]
+    proxy: ProxyConfig,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProxyConfig {
+    connection_file: Option<PathBuf>,
+}
+
+/// Private connection handoff, relative to the settings file.
+pub(crate) fn proxy_connection(config: Option<&Loaded<Config>>) -> PathBuf {
+    let default = Path::new(".kai/proxy.json");
+    match config {
+        Some(config) => config.resolve(
+            config
+                .value
+                .proxy
+                .connection_file
+                .as_deref()
+                .unwrap_or(default),
+        ),
+        None => default.to_owned(),
+    }
 }
 
 /// Root of named task directories, resolved relative to kai.toml.

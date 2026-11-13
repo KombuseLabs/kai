@@ -117,8 +117,10 @@ pub(super) fn dispatch(
     .map_err(|e| Failure::Usage(e.into()))?;
     let mut without = args
         .profile
-        .options(output.join(without_name).join("run"))?;
-    let mut with = args.profile.options(output.join(with_name).join("run"))?;
+        .options(output.join(without_name).join("run"), context)?;
+    let mut with = args
+        .profile
+        .options(output.join(with_name).join("run"), context)?;
     let passed = context.runtime.block_on(async {
         if let Some(addon) = addon {
             with.addons

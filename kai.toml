@@ -42,3 +42,7 @@ level = "warn"
 [runs]
 # Task directories holding <name>/task.json, relative to this config file.
 directory = ".runs"
+
+[proxy]
+# Private handoff written by tools/start-proxy; contains no provider key.
+connection_file = ".kai/proxy.json"

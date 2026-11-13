@@ -7,6 +7,7 @@
 
 mod agent;
 mod github;
+mod proxy;
 mod store;
 mod study;
 mod ticket;
@@ -22,6 +23,8 @@ use crate::settings::Config;
 /// kai's command groups.
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Hold a private connection handoff for another terminal; started by tools/start-proxy
+    Proxy,
     /// Run a named comparison from the configured runs directory
     Run(agent::NamedRunArgs),
     /// Reads tickets from GitHub
@@ -74,6 +77,7 @@ impl From<anyhow::Error> for Failure {
 /// Runs `command`; without one, kai greets.
 pub(crate) fn run(command: Option<&Command>, context: &Context<'_>) -> Result<(), Failure> {
     match command {
+        Some(Command::Proxy) => proxy::publish(context),
         Some(Command::Run(args)) => agent::run_named(args, context),
         None => {
             println!("{}", ::engine::greeting());

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keep prxy in this terminal; hand its placeholder to kai in another terminal.
+set -eu
+cd "$(dirname "$0")/.."
+cargo build --locked -p cli
+exec kai secrets exec ANTHROPIC_API_KEY -- prxy run --policy "$HOME/.prxy/spend.toml" -- ./target/debug/kai proxy

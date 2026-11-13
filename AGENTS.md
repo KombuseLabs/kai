@@ -22,6 +22,11 @@ the task's `arms` (`plain` and `ponytail` in the included task).
 It has no grader or statistical verdict. These paths are tested against a local fake
 model; a simple HTML pair has also completed with a real model through the
 external proxy. No ticket's check has been verified yet.
+`tools/start-proxy` starts the existing external proxy in one terminal;
+`kai proxy` publishes its loopback route and temporary placeholder in a
+private locked file, read automatically by agent commands in another
+terminal. `[proxy] connection_file` selects that file. Explicit route
+environment variables still take precedence; mock mode never uses the file.
 
 ## Where things are
 
