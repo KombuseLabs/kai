@@ -53,3 +53,7 @@ eval-reporter collect kai-run .runs/ponytail/results/<timestamp> --codebase none
 No reporter is required to execute a comparison. Old runs without this
 record remain inspectable as files; they are not silently reconstructed
 from an editable task definition.
+
+After terminal publication, Kai writes the immutable
+[report-evidence.json](kai-report-evidence-1.md) handoff. It hashes this
+pair and available agent records without changing their contents.

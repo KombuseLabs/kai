@@ -6,6 +6,7 @@ use helpers::fs::write_whole;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+mod evidence;
 pub(super) mod named;
 mod record;
 
@@ -186,12 +187,14 @@ pub(super) fn dispatch(
                 }
             }
             record.save(&output)?;
+            evidence::publish(&output, &record);
             anyhow::bail!(
                 "interrupted; both VMs stopped; results kept in {}",
                 output.display()
             );
         };
         record.save(&output)?;
+        evidence::publish(&output, &record);
         let mut passed = true;
         for (name, result) in [(without_name, first), (with_name, second)] {
             match result {

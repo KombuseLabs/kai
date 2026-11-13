@@ -259,6 +259,22 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
     };
     let pair: Value =
         serde_json::from_slice(&std::fs::read(output.join("pair.json")).unwrap()).unwrap();
+    let evidence: Value =
+        serde_json::from_slice(&std::fs::read(output.join("report-evidence.json")).unwrap())
+            .unwrap();
+    assert_eq!(evidence["run_id"], pair["run_id"]);
+    assert_eq!(evidence["capture"], "producer-terminal");
+    for reference in [
+        &evidence["pair"],
+        &evidence["arms"]["without"]["agent"],
+        &evidence["arms"]["with"]["agent"],
+    ] {
+        let bytes = std::fs::read(output.join(reference["path"].as_str().unwrap())).unwrap();
+        assert_eq!(
+            reference["sha256"],
+            format!("sha256:{}", helpers::hash::sha256_bytes(&bytes))
+        );
+    }
     assert_eq!(pair["format"], "kai-pair/1");
     assert_eq!(pair["state"], "finished");
     assert_eq!(pair["without"]["state"], "completed");
@@ -283,6 +299,11 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         let export = std::path::PathBuf::from(export);
         std::fs::create_dir(&export).unwrap();
         std::fs::copy(output.join("pair.json"), export.join("pair.json")).unwrap();
+        std::fs::copy(
+            output.join("report-evidence.json"),
+            export.join("report-evidence.json"),
+        )
+        .unwrap();
         std::fs::create_dir(export.join("input")).unwrap();
         std::fs::copy(output.join("input/seed.txt"), export.join("input/seed.txt")).unwrap();
         for side in ["without", "with"] {

@@ -178,8 +178,11 @@ external proxy with separate exported HTML files; this is not a quality score.
 ### View comparison metrics
 
 New comparisons also write [pair.json](contracts/kai-pair-1.md), a frozen
-record of the task, arm names and separate execution times. With
-eval-reporter 0.8 or newer, collect one result directory:
+record of the task, arm names and separate execution times. A terminal
+[report-evidence.json](contracts/kai-report-evidence-1.md) binds the pair
+and available agent files by SHA-256. Reporter 0.9 verifies this handoff
+and shows its provenance in Bench Board's local run details; 0.8 can read
+the pair without verifying the handoff. Collect one result directory:
 
 ```sh
 eval-reporter collect kai-run .runs/ponytail/results/<timestamp> --codebase none --send
