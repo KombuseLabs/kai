@@ -35,7 +35,7 @@ pub(crate) struct Config {
     runs: RunsConfig,
 }
 
-/// Named JSON runs, resolved relative to kai.toml.
+/// Root of named task directories, resolved relative to kai.toml.
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunsConfig {

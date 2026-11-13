@@ -90,17 +90,7 @@ impl WaysOut {
 /// A listener on the socket `name` in `dir`; through `/proc/self/fd` when
 /// the path is too long for a socket address.
 fn listen_in(dir: &Path, name: &str) -> std::io::Result<tokio::net::UnixListener> {
-    let path = dir.join(name);
-    let listener = if path.as_os_str().len() < 100 {
-        std::os::unix::net::UnixListener::bind(&path)?
-    } else {
-        use std::os::fd::AsRawFd as _;
-        let handle = std::fs::File::open(dir)?;
-        std::os::unix::net::UnixListener::bind(format!(
-            "/proc/self/fd/{}/{name}",
-            handle.as_raw_fd()
-        ))?
-    };
+    let listener = helpers::fs::bind_unix(&dir.join(name))?;
     listener.set_nonblocking(true)?;
     tokio::net::UnixListener::from_std(listener)
 }

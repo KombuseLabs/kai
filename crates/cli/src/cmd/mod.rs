@@ -39,7 +39,7 @@ pub(crate) enum Command {
     /// microVMs: what running one needs, the pinned Firecracker and guest kernel, and one command in a fresh VM
     Vm(vm::VmArgs),
     /// Pinned agent runtimes and one-shot or interactive microVM sessions
-    Agent(agent::AgentArgs),
+    Agent(Box<agent::AgentArgs>),
 }
 
 /// What every command may need: the global options, resolved against the

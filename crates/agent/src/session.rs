@@ -320,7 +320,9 @@ impl Session {
         let control = PartDir::beside(&parent.join("agent-control"))?;
         std::fs::set_permissions(control.path(), std::fs::Permissions::from_mode(0o700))?;
         let socket = control.path().join("socket");
-        let listener = UnixListener::bind(&socket)?;
+        let listener = helpers::fs::bind_unix(&socket)?;
+        listener.set_nonblocking(true)?;
+        let listener = UnixListener::from_std(listener)?;
         let mut spec = vm::RunSpec::new(
             image,
             vec![runtime::NODE_PATH.into(), runtime::WRAPPER_PATH.into()],

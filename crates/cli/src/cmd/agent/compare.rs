@@ -3,14 +3,57 @@ use super::{Context, Failure, ProfileArgs, execute};
 use anyhow::Context as _;
 use clap::Args;
 use helpers::fs::write_whole;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub(super) mod named;
+
+#[derive(Args, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ArmNames {
+    /// Directory name of the arm without extra instructions
+    #[arg(long = "without-name", default_value = "without")]
+    without: String,
+    /// Directory name of the arm with extra instructions
+    #[arg(long = "with-name", default_value = "with")]
+    with: String,
+}
+
+impl Default for ArmNames {
+    fn default() -> Self {
+        Self {
+            without: "without".into(),
+            with: "with".into(),
+        }
+    }
+}
+
+impl ArmNames {
+    fn validate(&self) -> anyhow::Result<()> {
+        for name in [&self.without, &self.with] {
+            anyhow::ensure!(
+                !name.is_empty()
+                    && name
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c)),
+                "arm names must contain only letters, digits, - or _"
+            );
+            anyhow::ensure!(
+                name != "input",
+                "the arm name input is reserved for the starting files"
+            );
+        }
+        anyhow::ensure!(self.without != self.with, "arm names must be different");
+        Ok(())
+    }
+}
 
 #[derive(Args)]
 pub(super) struct CompareArgs {
     #[command(flatten)]
     profile: ProfileArgs,
+    #[command(flatten)]
+    arms: ArmNames,
     /// Additional instructions, placed before the task in the second run only
     #[arg(
         long,
@@ -41,6 +84,9 @@ pub(super) fn dispatch(
     cache: &Path,
     context: &Context<'_>,
 ) -> Result<(), Failure> {
+    args.arms.validate().map_err(Failure::Usage)?;
+    let without_name = args.arms.without.as_str();
+    let with_name = args.arms.with.as_str();
     let extra = match (&args.extra_prompt, &args.extra_prompt_file) {
         (Some(text), _) => text.clone(),
         (_, Some(path)) => std::fs::read_to_string(path)
@@ -69,8 +115,10 @@ pub(super) fn dispatch(
             .unwrap_or_else(|| ::vm::new_run_dir(cache, Some("compare"))),
     )
     .map_err(|e| Failure::Usage(e.into()))?;
-    let mut without = args.profile.options(output.join("without/run"))?;
-    let mut with = args.profile.options(output.join("with/run"))?;
+    let mut without = args
+        .profile
+        .options(output.join(without_name).join("run"))?;
+    let mut with = args.profile.options(output.join(with_name).join("run"))?;
     let passed = context.runtime.block_on(async {
         if let Some(addon) = addon {
             with.addons
@@ -80,19 +128,26 @@ pub(super) fn dispatch(
             with_prompt = args.prompt.clone();
         }
         prepare(&output, args.profile.tree.as_deref()).await?;
-        for (options, name) in [(&mut without, "without"), (&mut with, "with")] {
+        for (options, name) in [(&mut without, without_name), (&mut with, with_name)] {
+            std::fs::create_dir(output.join(name))?;
             options.tree = Some(output.join("input"));
             options.tree_out = Some(output.join(name).join("tree"));
             write_whole(&output.join(name).join("status.txt"), b"pending\n")?;
         }
         println!("comparison: {}", output.display());
-        println!("without extra prompt: {}", output.join("without").display());
-        println!("with extra prompt: {}", output.join("with").display());
+        println!(
+            "{without_name} (without extra prompt): {}",
+            output.join(without_name).display()
+        );
+        println!(
+            "{with_name} (with extra prompt): {}",
+            output.join(with_name).display()
+        );
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         let runs = async {
-            let without_dir = output.join("without");
-            let with_dir = output.join("with");
+            let without_dir = output.join(without_name);
+            let with_dir = output.join(with_name);
             let first = run(cache, without, &args.prompt, &without_dir);
             let second = run(cache, with, &with_prompt, &with_dir);
             if args.sequential {
@@ -107,7 +162,7 @@ pub(super) fn dispatch(
             _ = terminate.recv() => None,
         };
         let Some((first, second)) = results else {
-            for name in ["without", "with"] {
+            for name in [without_name, with_name] {
                 let path = output.join(name).join("status.txt");
                 if matches!(
                     std::fs::read_to_string(&path)?.trim(),
@@ -122,7 +177,7 @@ pub(super) fn dispatch(
             );
         };
         let mut passed = true;
-        for (name, result) in [("without", first), ("with", second)] {
+        for (name, result) in [(without_name, first), (with_name, second)] {
             match result {
                 Ok(true) => println!(
                     "{name}: completed; files in {}",
@@ -180,8 +235,6 @@ async fn prepare(output: &Path, tree: Option<&Path>) -> anyhow::Result<()> {
     }
     // Claim a new directory; never overwrite an earlier pair or its files.
     std::fs::create_dir(output).context("output must be a new directory")?;
-    std::fs::create_dir(output.join("without"))?;
-    std::fs::create_dir(output.join("with"))?;
     let input = output.join("input");
     if let Some(tree) = tree {
         // As for a VM's job drive: preserve links and modes, copy no target

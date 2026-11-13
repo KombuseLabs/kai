@@ -3,6 +3,10 @@
   "prompt": "Build an HTML calculator in index.html with embedded CSS and JavaScript.",
   "extra_prompt": "/ponytail full",
   "addon": "ponytail",
+  "arms": {
+    "without": "plain",
+    "with": "ponytail"
+  },
   "max_turns": 40,
   "sequential": false
 }

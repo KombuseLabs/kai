@@ -14,9 +14,11 @@ prompt, and `kai agent session` exchanges interactive commands/events with
 that runtime in a microVM. `kai agent compare` runs the same task with and
 without extra instructions, in two fresh VMs, parallel by default; its
 generated trees and answers are kept separately for the owner to inspect.
-`kai run <name>` reads the pair's inputs from a JSON file under
+`kai run <name>` reads the pair's inputs from `<name>/task.json` under
 `runs.directory` in `kai.toml` (default `.runs`). The included `ponytail`
 run mounts and activates the pinned add-on only for the second session.
+Results go to `<name>/results/<timestamp>/`, in the directories named by
+the task's `arms` (`plain` and `ponytail` in the included task).
 It has no grader or statistical verdict. These paths are tested against a local fake
 model; no ticket's check or real-model workflow has been verified yet.
 
@@ -37,7 +39,7 @@ model; no ticket's check or real-model workflow has been verified yet.
 | `crates/diagrams/` | keeps the diagrams in Markdown true to the code (`tests/docs.rs`), writes the crate graph of `docs/crates.md` (`tests/crates.rs`), and the maintainer's tool `diagram-stubs`, which prints Rust stubs from a planned class diagram; reads source text with syn and builds no crate of kai's; nothing depends on it |
 | `images/` | the recipes of kai's VM images, one Dockerfile each, compiled into kai; their rules are in `crates/vm/src/image.rs` |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
-| `.runs/` | named JSON comparisons for `kai run <name>`; paths inside a JSON file are relative to it |
+| `.runs/` | named tasks for `kai run <name>`: `<name>/task.json` and gitignored `<name>/results/<timestamp>/`; file paths in task.json are relative to it |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders), each kept true by `crates/diagrams`: `qualify.md`, `proxy.md`, `agent.md`, `crates.md` (the crate graph, generated) |
 | `contracts/` | the file formats kai reads and writes, one page each, with an example: `kai-vm-run/1`, `kai-agent-session/1`, `kai-agent-run/1` |
 | `deny.toml` | which licences and sources dependencies may have |

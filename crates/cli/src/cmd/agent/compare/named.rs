@@ -1,5 +1,5 @@
 //! Named comparisons are plain JSON files, not a separate execution path.
-use super::{CompareArgs, Context, Failure, ProfileArgs, dispatch};
+use super::{ArmNames, CompareArgs, Context, Failure, ProfileArgs, dispatch};
 use crate::settings;
 use anyhow::Context as _;
 use clap::Args;
@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 
 #[derive(Args)]
 pub(crate) struct NamedRunArgs {
-    /// JSON filename without .json, in runs.directory from kai.toml
+    /// Task directory containing task.json, in runs.directory from kai.toml
     name: String,
     /// Override the VM cache
     #[arg(long, env = "KAI_VM_CACHE", value_name = "DIR")]
     cache: Option<PathBuf>,
-    /// New output directory; by default each call creates one in the VM cache
+    /// Override the default `<task>/results/<timestamp>` output directory
     #[arg(long, value_name = "DIR")]
     output: Option<PathBuf>,
     /// Use an explicitly supplied local fake API
@@ -32,6 +32,8 @@ struct Definition {
     tree: Option<PathBuf>,
     max_turns: Option<u32>,
     #[serde(default)]
+    arms: ArmNames,
+    #[serde(default)]
     sequential: bool,
 }
 
@@ -41,9 +43,9 @@ fn load(directory: &Path, name: &str) -> anyhow::Result<(Definition, PathBuf)> {
             && name
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c)),
-        "run name must contain only letters, digits, - or _ (without .json)"
+        "run name must contain only letters, digits, - or _"
     );
-    let file = directory.join(format!("{name}.json"));
+    let file = directory.join(name).join("task.json");
     let bytes =
         std::fs::read(&file).with_context(|| format!("cannot read run {}", file.display()))?;
     let definition: Definition = serde_json::from_slice(&bytes)
@@ -66,6 +68,14 @@ fn load(directory: &Path, name: &str) -> anyhow::Result<(Definition, PathBuf)> {
     Ok((definition, file))
 }
 
+/// UTC Unix seconds and nanoseconds keep starts in the same second apart.
+fn result_directory(task: &Path) -> anyhow::Result<PathBuf> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+    Ok(task
+        .join("results")
+        .join(format!("{}.{:09}", now.as_secs(), now.subsec_nanos())))
+}
+
 pub(crate) fn run_named(args: &NamedRunArgs, context: &Context<'_>) -> Result<(), Failure> {
     let directory = settings::runs_directory(context.config);
     let (definition, file) = load(&directory, &args.name).map_err(Failure::Usage)?;
@@ -73,6 +83,7 @@ pub(crate) fn run_named(args: &NamedRunArgs, context: &Context<'_>) -> Result<()
     let cache =
         settings::vm_cache(args.cache.as_deref(), context.config).map_err(Failure::Usage)?;
     let compare = CompareArgs {
+        arms: definition.arms,
         profile: ProfileArgs {
             model: definition.model,
             image: "rust".into(),
@@ -88,11 +99,10 @@ pub(crate) fn run_named(args: &NamedRunArgs, context: &Context<'_>) -> Result<()
         extra_prompt: definition.extra_prompt,
         extra_prompt_file: definition.extra_prompt_file.map(|path| parent.join(path)),
         addon: definition.addon,
-        output: Some(
-            args.output
-                .clone()
-                .unwrap_or_else(|| ::vm::new_run_dir(&cache, Some(&args.name))),
-        ),
+        output: Some(match &args.output {
+            Some(path) => path.clone(),
+            None => result_directory(parent).map_err(Failure::Usage)?,
+        }),
         sequential: definition.sequential,
         prompt: definition.prompt,
     };

@@ -25,18 +25,18 @@ cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched 
 cargo run -- agent fetch            # the pinned Claude/SDK/Node runtime for a microVM
 cargo run -- agent fetch --addon ponytail   # Ponytail's skill, pinned, as a read-only layer
 cargo run -- agent compare --model <id> --extra-prompt "Use one HTML file." --output ./comparison -- "Build an HTML calculator."
-cargo run -- run ponytail           # the named pair in .runs/ponytail.json
+cargo run -- run ponytail           # the named pair in .runs/ponytail/task.json
 ```
 
 ### One task, with and without an extra prompt
 
-Save a comparison as a JSON file and run it by name:
+Save a comparison as `<name>/task.json` and run it by name:
 
 ```sh
 kai run ponytail
 ```
 
-The included [.runs/ponytail.json](.runs/ponytail.json) compares the same
+The included [.runs/ponytail/task.json](.runs/ponytail/task.json) compares the same
 HTML-calculator task on Sonnet 5.5, once plain and once with the pinned
 Ponytail add-on activated by `/ponytail full`. Both run in parallel. The
 runtime, image and add-on must already be prepared (`kai agent fetch`,
@@ -52,15 +52,44 @@ directory = ".runs"
 
 It is relative to that config file, so `kai run ponytail` also works from
 a directory below it. Without a setting, `.runs` is the default. The name
-has no `.json` suffix and may contain letters, digits, `-` and `_`.
+is the task directory's name and may contain letters, digits, `-` and `_`.
 
 A run file requires `model`, `prompt`, and exactly one of `extra_prompt`
 or `extra_prompt_file`. Optional fields are `tree`, `max_turns`,
-`sequential` (default false) and `addon`. File paths are relative to the
+`sequential` (default false), `addon` and `arms`. File paths are relative to the
 JSON file. With `addon`, the extra prompt is its activation slash command;
 only the second VM mounts that add-on. Unknown fields are errors.
-Each invocation writes a new result directory in the VM cache; `--output
-DIR` chooses one explicitly. `--cache DIR` overrides the VM cache and
+Each invocation writes to `<task>/results/<timestamp>/`; the timestamp
+is Unix seconds followed by nine fractional digits. The `arms` object
+names the two output directories, defaulting to `without` and `with`:
+
+```json
+"arms": {"without": "plain", "with": "ponytail"}
+```
+
+Names must be different, contain only letters, digits, `-` and `_`, and
+must not be `input`, which is reserved for the starting files. For the
+included task the result is:
+
+```text
+.runs/ponytail/
+  task.json
+  results/<timestamp>/
+    input/
+    plain/
+      tree/
+      answer.md
+      status.txt
+      run/
+    ponytail/
+      tree/
+      answer.md
+      status.txt
+      run/
+```
+
+Generated results under `.runs` are gitignored. `--output DIR` overrides
+the result directory. `--cache DIR` overrides the VM cache and
 `--mock` selects an explicitly supplied local fake API.
 
 For an ad-hoc comparison, pass the same inputs directly:

@@ -9,3 +9,6 @@
 
 # The store, kai's cache of tickets (kai.toml, [store]).
 /.kai/
+
+# Generated outputs and session records of named runs.
+/.runs/*/results/

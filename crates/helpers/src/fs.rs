@@ -37,6 +37,25 @@ pub fn write_whole(path: &Path, bytes: &[u8]) -> io::Result<()> {
     part.keep()
 }
 
+/// Binds a Unix listener even when its parent directory's path exceeds the
+/// socket address limit. On Linux, an open directory's `/proc/self/fd` path
+/// gives the kernel a short name for the same place. The listener is blocking;
+/// async callers set it nonblocking before handing it to their runtime.
+pub fn bind_unix(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
+    if path.as_os_str().len() < 100 {
+        return std::os::unix::net::UnixListener::bind(path);
+    }
+    use std::os::fd::AsRawFd as _;
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(io::Error::other("no socket file named"));
+    };
+    let handle = std::fs::File::open(parent)?;
+    let short = Path::new("/proc/self/fd")
+        .join(handle.as_raw_fd().to_string())
+        .join(name);
+    std::os::unix::net::UnixListener::bind(short)
+}
+
 /// A file on its way to its target, in the target's directory, so that
 /// putting it in place is a rename. Its name, `.<target>.<process>-<n>.part`,
 /// is its own among processes and within one. Dropped without

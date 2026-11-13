@@ -176,11 +176,12 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         }
         cmd.args(["--", "TASK_FIXTURE: build a calculator"]);
     } else {
-        std::fs::create_dir(dir.join("presets")).unwrap();
+        std::fs::create_dir_all(dir.join("presets/fixture")).unwrap();
         std::fs::create_dir(dir.join("below")).unwrap();
         std::fs::write(dir.join("kai.toml"), "[runs]\ndirectory = 'presets'\n").unwrap();
         let mut definition = json!({"model":"fixture", "prompt":"TASK_FIXTURE: build a calculator",
-            "extra_prompt_file":"../extra.txt", "tree":"../source", "max_turns":3, "sequential":sequential});
+            "extra_prompt_file":"../../extra.txt", "tree":"../../source", "max_turns":3, "sequential":sequential,
+            "arms":{"without":"plain", "with":"ponytail"}});
         if matches!(entry, Entry::Ponytail) {
             definition
                 .as_object_mut()
@@ -189,11 +190,15 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
             definition["extra_prompt"] = "/ponytail full".into();
             definition["addon"] = "ponytail".into();
         }
-        std::fs::write(dir.join("presets/fixture.json"), definition.to_string()).unwrap();
+        std::fs::write(
+            dir.join("presets/fixture/task.json"),
+            definition.to_string(),
+        )
+        .unwrap();
         cmd.current_dir(dir.join("below"))
             .args(["run", "fixture", "--cache"])
             .arg(&cache)
-            .args(["--mock", "--output", "../results"]);
+            .arg("--mock");
     }
     let out: Output = tokio::time::timeout(Duration::from_secs(120), cmd.output())
         .await
@@ -201,9 +206,31 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         .unwrap();
     server.abort();
     assert_eq!(out.status.success(), !fail_with, "{out:?}");
+    let output = if matches!(entry, Entry::Direct) {
+        dir.join("results")
+    } else {
+        let results: Vec<_> = std::fs::read_dir(dir.join("presets/fixture/results"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(results.len(), 1);
+        let timestamp = results[0].file_name().unwrap().to_str().unwrap();
+        let (seconds, nanos) = timestamp.split_once('.').unwrap();
+        assert!(seconds.parse::<u64>().unwrap() > 0);
+        assert_eq!(nanos.len(), 9);
+        assert!(nanos.parse::<u32>().unwrap() < 1_000_000_000);
+        results[0].clone()
+    };
     let mut sessions = vec![];
     for name in ["without", "with"] {
-        let result = dir.join("results").join(name);
+        let arm = if matches!(entry, Entry::Direct) {
+            name
+        } else if name == "without" {
+            "plain"
+        } else {
+            "ponytail"
+        };
+        let result = output.join(arm);
         let record: Value =
             serde_json::from_slice(&std::fs::read(result.join("run/agent.json")).unwrap()).unwrap();
         sessions.push(record["session_id"].clone());
@@ -287,12 +314,12 @@ async fn a_named_ponytail_run_activates_the_addon_only_on_one_side() {
 #[test]
 fn named_runs_reject_bad_names_and_invalid_definitions() {
     let dir = TestDir::new("named-run-errors");
-    std::fs::create_dir(dir.join("presets")).unwrap();
+    std::fs::create_dir_all(dir.join("presets/fixture")).unwrap();
     std::fs::create_dir(dir.join("below")).unwrap();
     std::fs::write(dir.join("kai.toml"), "[runs]\ndirectory = 'presets'\n").unwrap();
     for (name, expected) in [
         ("../outside", "run name"),
-        ("missing", "presets/missing.json"),
+        ("missing", "presets/missing/task.json"),
     ] {
         let out = command(&dir.join("below"))
             .args(["run", name, "--mock"])
@@ -318,8 +345,24 @@ fn named_runs_reject_bad_names_and_invalid_definitions() {
             json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "max_turns":0}),
             "max_turns",
         ),
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "arms":{"without":"same", "with":"same"}}),
+            "arm names must be different",
+        ),
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "arms":{"without":"../outside"}}),
+            "arm names must contain",
+        ),
+        (
+            json!({"model":"fixture", "prompt":"task", "extra_prompt":"extra", "arms":{"with":"input"}}),
+            "reserved",
+        ),
     ] {
-        std::fs::write(dir.join("presets/fixture.json"), definition.to_string()).unwrap();
+        std::fs::write(
+            dir.join("presets/fixture/task.json"),
+            definition.to_string(),
+        )
+        .unwrap();
         let out = command(&dir.join("below"))
             .args(["run", "fixture", "--mock"])
             .output()

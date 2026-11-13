@@ -40,5 +40,5 @@ level = "warn"
 # cache = ".kai/vm"
 
 [runs]
-# Named JSON files for `kai run <name>`, relative to this config file.
+# Task directories holding <name>/task.json, relative to this config file.
 directory = ".runs"
