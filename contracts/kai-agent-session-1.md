@@ -14,8 +14,15 @@ Each command has `format: "kai-agent-session/1"` and `op`:
 | close | none | Stop the SDK subprocess and end the guest |
 
 The model is explicit. The tool list contains only Read, Edit, Write, Bash,
-Glob and Grep; an empty list disables tools. Permission requests outside
-the configured allowance are denied, not presented as spending approvals.
+Glob and Grep; an empty list disables tools. Claude may offer the model
+fewer: each turn's `system` `init` event names those it offers. The
+wrapper starts Claude without bare mode, which would offer only Bash, Read
+and Edit, and with no setting source: nothing of the tree (its CLAUDE.md,
+AGENTS.md, settings or hooks) configures Claude, and the fresh home holds
+nothing either. A permission request Claude makes, for an allowed tool
+too (as before it changes its own settings in the tree), is denied, never
+presented as a spending approval; the turn goes on, and the result's
+`permission_denials` names the request.
 
 Every event has `format`, monotonic `seq` starting at 1, `kind`, and
 `payload`; `turn` and `session_id` appear when applicable. A session id,
@@ -24,7 +31,7 @@ once present, must remain unchanged.
 | kind | Meaning |
 | --- | --- |
 | ready | Exact SDK, Claude and Node versions, checked by the host |
-| event | Partial stream, assistant or user event from the SDK |
+| event | Partial stream, assistant, user or system event from the SDK, during a turn |
 | interrupted | Acknowledgement of the interrupt request |
 | result | Terminal SDK result with an explicit interrupted flag |
 | closed | Wrapper closing; the host must still join the VM |

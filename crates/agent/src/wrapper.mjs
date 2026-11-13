@@ -55,7 +55,9 @@ async function readEvents() {
         const succeeded = message.subtype === 'success' && message.is_error === false;
         await emit('result', turn.id, message.session_id,
           safe({ ...message, interrupted: !!turn.interrupt && !succeeded }));
-      } else if (['assistant', 'user', 'stream_event'].includes(message.type)) {
+      } else if (['system', 'assistant', 'user', 'stream_event'].includes(message.type)) {
+        // `system` carries the turn's `init`, whose `tools` are those Claude
+        // actually offers the model, which may differ from the allowlist.
         await emit('event', turn.id, message.session_id, safe(message));
       }
     }
@@ -73,10 +75,13 @@ async function command(m) {
       || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(m.model) || !Array.isArray(m.tools)
       || m.tools.some(tool => !['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'].includes(tool))) throw new Error('start');
     started = true;
+    // Not bare: under --bare, Claude offers only Bash, Read and Edit. No
+    // setting source either, so nothing of the tree configures Claude: its
+    // CLAUDE.md, AGENTS.md, settings and hooks stay out. Empty, not omitted.
     queryHandle = query({ prompt: messages(), options: {
       pathToClaudeCodeExecutable: '/opt/kai/agents/session/claude',
       cwd: '/job/tree', model: m.model, tools: m.tools, allowedTools: m.tools,
-      includePartialMessages: true, extraArgs: { bare: null },
+      includePartialMessages: true, settingSources: [],
       canUseTool: async () => ({ behavior: 'deny', message: 'Tool interaction is not enabled for this session.' }),
       env: { ...process.env }, stderr: () => {},
     } });

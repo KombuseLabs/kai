@@ -190,6 +190,10 @@ pub struct Turn {
     pub outcome: String,
     /// Digest of the submitted prompt; not its text.
     pub prompt_sha256: String,
+    /// The tools Claude offered the model in this turn, as its `system`
+    /// `init` event names them; `None` when the turn brought no such event.
+    /// They can differ from [`Options::tools`], the tools asked for.
+    pub tools_offered: Option<Vec<String>>,
     /// SDK terminal result without cost estimates.
     pub result: Value,
 }
@@ -197,6 +201,7 @@ pub struct Turn {
 struct Active {
     id: u64,
     prompt_sha256: String,
+    tools_offered: Option<Vec<String>>,
     interrupt: bool,
     acknowledged: bool,
     terminal: bool,
@@ -228,6 +233,7 @@ pub struct Session {
     closing: bool,
     recorded_bytes: usize,
     record_written: bool,
+    tools_warned: bool,
     failure: Option<String>,
 }
 
@@ -332,6 +338,7 @@ impl Session {
             closing: false,
             recorded_bytes: 0,
             record_written: false,
+            tools_warned: false,
             failure: None,
         };
         if let Err(error) = session.handshake().await {
@@ -396,6 +403,7 @@ impl Session {
         self.active = Some(Active {
             id,
             prompt_sha256: helpers::hash::sha256_bytes(text.as_bytes()),
+            tools_offered: None,
             interrupt: false,
             acknowledged: false,
             terminal: false,
@@ -484,6 +492,19 @@ impl Session {
                 if event.turn != Some(active.id) {
                     return Err(Error::Protocol("wrong turn id"));
                 }
+                if active.tools_offered.is_none()
+                    && let Some(offered) = offered_tools(&event)?
+                {
+                    if !self.tools_warned && !same_tools(&offered, &self.options.tools) {
+                        self.tools_warned = true;
+                        tracing::warn!(
+                            requested = ?self.options.tools,
+                            offered = ?offered,
+                            "Claude offers other tools than were asked for; agent.json records both"
+                        );
+                    }
+                    active.tools_offered = Some(offered);
+                }
                 if event.kind == "interrupted" {
                     if !active.interrupt || active.acknowledged {
                         return Err(Error::Protocol("unexpected interrupt acknowledgement"));
@@ -514,6 +535,7 @@ impl Session {
                         id: active.id,
                         outcome: outcome.into(),
                         prompt_sha256: active.prompt_sha256.clone(),
+                        tools_offered: active.tools_offered.clone(),
                         result: event.payload.clone(),
                     });
                 }
@@ -690,6 +712,39 @@ fn environment(mut env: BTreeMap<String, String>, route: &Route) -> BTreeMap<Str
     env
 }
 
+/// The tools a turn's `system` `init` event names, when `event` is one.
+/// A list that is not a short array of short strings breaks the protocol.
+fn offered_tools(event: &Event) -> Result<Option<Vec<String>>, Error> {
+    let payload = &event.payload;
+    if event.kind != "event" || payload["type"] != "system" || payload["subtype"] != "init" {
+        return Ok(None);
+    }
+    let invalid = || Error::Protocol("init event without a valid tool list");
+    let tools = payload["tools"]
+        .as_array()
+        .filter(|tools| tools.len() <= 256)
+        .ok_or_else(invalid)?;
+    tools
+        .iter()
+        .map(|tool| match tool.as_str() {
+            Some(name) if !name.is_empty() && name.len() <= 128 => Ok(name.to_owned()),
+            _ => Err(invalid()),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// Whether two tool lists name the same tools, in any order.
+fn same_tools(offered: &[String], requested: &[String]) -> bool {
+    let mut offered: Vec<&str> = offered.iter().map(String::as_str).collect();
+    let mut requested: Vec<&str> = requested.iter().map(String::as_str).collect();
+    offered.sort_unstable();
+    offered.dedup();
+    requested.sort_unstable();
+    requested.dedup();
+    offered == requested
+}
+
 fn remove_cost(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -801,6 +856,7 @@ mod tests {
                 closing: false,
                 recorded_bytes: 0,
                 record_written: false,
+                tools_warned: false,
                 failure: None,
             },
             two,
@@ -893,6 +949,78 @@ mod tests {
         session.next_event().await.unwrap();
         assert_eq!(session.turns()[0].outcome, "answered");
         assert_eq!(session.send("next").await.unwrap(), 2);
+    }
+    #[tokio::test]
+    async fn the_tools_claude_offers_are_recorded_beside_those_asked_for() {
+        let (mut session, mut peer) = fixture();
+        session.send("fixture").await.unwrap();
+        event(
+            &mut peer,
+            2,
+            "event",
+            json!({"type":"system","subtype":"init","tools":["Bash","Edit","Read"]}),
+        )
+        .await;
+        session.next_event().await.unwrap();
+        // A second init in the same turn does not replace the first.
+        event(
+            &mut peer,
+            3,
+            "event",
+            json!({"type":"system","subtype":"init","tools":["Fixture"]}),
+        )
+        .await;
+        session.next_event().await.unwrap();
+        event(
+            &mut peer,
+            4,
+            "result",
+            json!({"subtype":"success","is_error":false}),
+        )
+        .await;
+        session.next_event().await.unwrap();
+        assert!(session.tools_warned);
+        session.send("fixture without init").await.unwrap();
+        let mut text = json!({"format":runtime::FORMAT,"seq":5,"kind":"result","turn":2,
+            "session_id":"fixture-session","payload":{"subtype":"success","is_error":false}})
+        .to_string();
+        text.push('\n');
+        peer.write_all(text.as_bytes()).await.unwrap();
+        session.next_event().await.unwrap();
+        session.record("closed", None).unwrap();
+        let saved = saved_record(&session);
+        assert_eq!(saved["tools"].as_array().unwrap().len(), TOOLS.len());
+        assert_eq!(
+            saved["turns"][0]["tools_offered"],
+            json!(["Bash", "Edit", "Read"])
+        );
+        assert_eq!(saved["turns"][1]["tools_offered"], Value::Null);
+    }
+    #[tokio::test]
+    async fn an_init_event_without_a_tool_list_breaks_the_protocol() {
+        for tools in [json!(null), json!("Bash"), json!([1]), json!([""])] {
+            let (mut session, mut peer) = fixture();
+            session.send("fixture").await.unwrap();
+            event(
+                &mut peer,
+                2,
+                "event",
+                json!({"type":"system","subtype":"init","tools":tools}),
+            )
+            .await;
+            assert!(session.next_event().await.is_err());
+            assert!(session.failed);
+        }
+    }
+    #[test]
+    fn tool_lists_compare_as_sets() {
+        let list = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+        assert!(same_tools(
+            &list(&["Read", "Bash"]),
+            &list(&["Bash", "Read"])
+        ));
+        assert!(!same_tools(&list(&["Bash", "Edit", "Read"]), &list(TOOLS)));
+        assert!(same_tools(&[], &[]));
     }
     fn saved_record(session: &Session) -> Value {
         serde_json::from_slice(&std::fs::read(session.options.run_dir.join("agent.json")).unwrap())

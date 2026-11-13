@@ -155,8 +155,14 @@ port. Normal mode accepts only a proxy-issued placeholder of the supported
 format in `ANTHROPIC_API_KEY`; `--mock` discards that value and uses a fixed
 dummy against an explicitly supplied local fake endpoint. Approval, spending
 limits and provider credentials belong to the external proxy. No real
-model workflow has been verified. The tested path uses a local fake API;
-tool execution and permission interaction have not yet been qualified.
+model workflow has been verified. Against a local fake API that calls
+tools, Bash runs in the guest's tree as uid 1000, a Write and an Edit
+come out with `--tree-out`, and a permission request Claude makes on its
+own, such as for changing its settings in the tree, is denied and named
+in the turn's result. Claude runs without bare mode, which would offer
+only Bash, Read and Edit, and with no setting source, so a tree's
+CLAUDE.md, AGENTS.md and hooks stay out. `agent.json` records the tools
+asked for and, per turn, those Claude offered.
 
 The unprivileged guest owns its work tree and fresh home. An explicit model,
 a tool allowlist and VM limits configure the run. `events.jsonl`,
@@ -197,8 +203,8 @@ built without its init, and `kai vm doctor` says so.
 
 - A ticket's check, its hidden tests, run in a microVM on the layers
   `kai ticket deps` makes.
-- A qualified tool-edit workflow and a real-model run through the external
-  proxy. Interactive transport is tested with a fake API only.
+- A real-model run through the external proxy. Sessions and tool calls
+  are tested with a fake API only.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 
