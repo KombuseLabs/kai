@@ -34,6 +34,8 @@ allow = [
     "MIT",
     # unicode-ident, for the Unicode data it carries.
     "Unicode-3.0",
+    # foldhash, the hasher of hashbrown (through rusqlite).
+    "Zlib",
 ]
 
 [bans]

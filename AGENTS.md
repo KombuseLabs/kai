@@ -13,6 +13,7 @@ and further crates kai consists of is not decided.
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai` |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library: today the static qualify rules; never depends on `cli` |
+| `crates/store/` | a throwaway SQLite cache of the tickets; emptied when its schema changes, no migrations |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`, and `config`, which finds and reads settings files |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |
