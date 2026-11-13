@@ -1,0 +1,14 @@
+{
+  "format": "kai-variant/1",
+  "baseline": "sha256:9855a772d8cdf9fe0ce346fd4196745afb518cbcec69ce382cc49139810f7786",
+  "addons": [
+    {
+      "kind": "plugin",
+      "name": "ponytail",
+      "key": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "inventory": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "layer": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "activation": "/ponytail full"
+}

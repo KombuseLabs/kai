@@ -1,0 +1,275 @@
+{
+  "format": "kai-lock/2",
+  "canonical": "kai-canonical-json/1",
+  "study": {
+    "name": "fixture-study",
+    "id": "sha256:1a452f00b3a5597c9cc6525685e2a59c0613e213d19d4de3859c1c3af31727ea",
+    "content": {
+      "format": "kai-study/2",
+      "name": "fixture-study",
+      "image": "rust",
+      "seed": 7,
+      "repetitions": 2,
+      "model": {
+        "id": "fixture-model",
+        "tools": [
+          "Read",
+          "Edit",
+          "Write",
+          "Bash",
+          "Glob",
+          "Grep"
+        ],
+        "context_tokens": 200000,
+        "max_output_tokens": 32000
+      },
+      "limits": {
+        "cpus": 2,
+        "memory_mib": 4096,
+        "timeout_s": 600,
+        "max_turns": 40,
+        "max_attempts": 2
+      },
+      "question": {
+        "metric": "total_tokens",
+        "quality_gate": "pass_rate",
+        "min_saving": 0.2,
+        "margin": 0.15,
+        "alpha": 0.05
+      },
+      "assumed": {
+        "within_task_sd": 0.35,
+        "task_by_arm_sd": 0.15
+      },
+      "arms": [
+        {
+          "name": "shadow",
+          "role": "shadow",
+          "addons": []
+        },
+        {
+          "name": "ghost",
+          "role": "ghost",
+          "addons": [
+            "ponytail"
+          ],
+          "activation": "/ponytail full"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "fixture-add",
+          "dir": "../fixture-tasks/fixture-add"
+        },
+        {
+          "id": "fixture-parse",
+          "dir": "../fixture-tasks/fixture-parse"
+        }
+      ]
+    }
+  },
+  "baseline": {
+    "id": "sha256:9855a772d8cdf9fe0ce346fd4196745afb518cbcec69ce382cc49139810f7786",
+    "record": {
+      "format": "kai-environment/1",
+      "image": {
+        "recipe": "rust",
+        "id": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "vm": {
+        "firecracker": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "kernel": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "initramfs": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "runtime": {
+        "agent": "claude-code",
+        "claude": "2.1.323",
+        "sdk": "0.3.323",
+        "node": "22.22.0",
+        "layer": {
+          "key": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+          "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+          "length": 194846720
+        },
+        "wrapper": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "session": "kai-agent-session/1"
+      },
+      "profile": {
+        "uid": 1000,
+        "gid": 1000,
+        "bare": false,
+        "setting_sources": [],
+        "model": "fixture-model",
+        "effort": "claude-default",
+        "tools": [
+          "Read",
+          "Edit",
+          "Write",
+          "Bash",
+          "Glob",
+          "Grep"
+        ],
+        "cpus": 2,
+        "memory_mib": 4096,
+        "timeout_s": 600,
+        "max_turns": 40,
+        "protocol": "kai-trial-protocol/1"
+      }
+    }
+  },
+  "arms": [
+    {
+      "name": "shadow",
+      "role": "shadow",
+      "variant": {
+        "id": "sha256:0d69e54dc7529374c895e6786f098078f37d11cb8d43e06dbda8da007066a435",
+        "record": {
+          "format": "kai-variant/1",
+          "baseline": "sha256:9855a772d8cdf9fe0ce346fd4196745afb518cbcec69ce382cc49139810f7786",
+          "addons": []
+        }
+      }
+    },
+    {
+      "name": "ghost",
+      "role": "ghost",
+      "variant": {
+        "id": "sha256:9bece3a7c02986f94596dd736bb048f87212ce2dbf967cc2e8c39bb002080bea",
+        "record": {
+          "format": "kai-variant/1",
+          "baseline": "sha256:9855a772d8cdf9fe0ce346fd4196745afb518cbcec69ce382cc49139810f7786",
+          "addons": [
+            {
+              "kind": "plugin",
+              "name": "ponytail",
+              "key": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+              "inventory": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+              "layer": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "activation": "/ponytail full"
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "id": "fixture-add",
+      "inventory": "sha256:c090b58d412d17e7d5d63706bc5c88b463cdcbdd4bdbf960b13faf942d3da212",
+      "files": [
+        {
+          "path": "hidden/tests/fixture.rs",
+          "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "mode": "0644"
+        },
+        {
+          "path": "instruction.md",
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "mode": "0644"
+        },
+        {
+          "path": "reference.patch",
+          "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "mode": "0644"
+        },
+        {
+          "path": "task.toml",
+          "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "mode": "0644"
+        }
+      ]
+    },
+    {
+      "id": "fixture-parse",
+      "inventory": "sha256:77e50ecd0cc273d52d156ec6d655a365c652dbd028b1877f25a9eae27961d700",
+      "files": [
+        {
+          "path": "hidden/tests/fixture.rs",
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "mode": "0644"
+        },
+        {
+          "path": "instruction.md",
+          "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "mode": "0644"
+        },
+        {
+          "path": "reference.patch",
+          "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "mode": "0644"
+        },
+        {
+          "path": "task.toml",
+          "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "mode": "0644"
+        }
+      ]
+    }
+  ],
+  "plan": {
+    "seed": 7,
+    "repetitions": 2,
+    "arms": [
+      "shadow",
+      "ghost"
+    ],
+    "tasks": [
+      "fixture-add",
+      "fixture-parse"
+    ],
+    "slots": [
+      {
+        "task": "fixture-add",
+        "arm": "ghost",
+        "repetition": 1,
+        "position": 1
+      },
+      {
+        "task": "fixture-add",
+        "arm": "shadow",
+        "repetition": 1,
+        "position": 2
+      },
+      {
+        "task": "fixture-parse",
+        "arm": "shadow",
+        "repetition": 1,
+        "position": 3
+      },
+      {
+        "task": "fixture-parse",
+        "arm": "ghost",
+        "repetition": 1,
+        "position": 4
+      },
+      {
+        "task": "fixture-parse",
+        "arm": "ghost",
+        "repetition": 2,
+        "position": 5
+      },
+      {
+        "task": "fixture-parse",
+        "arm": "shadow",
+        "repetition": 2,
+        "position": 6
+      },
+      {
+        "task": "fixture-add",
+        "arm": "shadow",
+        "repetition": 2,
+        "position": 7
+      },
+      {
+        "task": "fixture-add",
+        "arm": "ghost",
+        "repetition": 2,
+        "position": 8
+      }
+    ]
+  },
+  "kai": {
+    "version": "0.1.0"
+  },
+  "locked_at": "2026-11-13T16:00:00Z"
+}

@@ -1,0 +1,67 @@
+{
+  "format": "kai-trial/3",
+  "study": "fixture-study",
+  "lock": "sha256:0d472ec83e6951d30042aa40055de3a5f938a645b3a7988695fb6e8fbdb0f9fd",
+  "slot": {
+    "task": "fixture-add",
+    "arm": "ghost",
+    "repetition": 1,
+    "position": 1
+  },
+  "attempt": 1,
+  "outcome": "counted",
+  "pins": {
+    "baseline": "sha256:9855a772d8cdf9fe0ce346fd4196745afb518cbcec69ce382cc49139810f7786",
+    "variant": "sha256:9bece3a7c02986f94596dd736bb048f87212ce2dbf967cc2e8c39bb002080bea",
+    "image": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "layer": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "addons": [
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "model_seen": "fixture-model"
+  },
+  "agent": {
+    "path": "agent/agent.json",
+    "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "turn": "answered",
+    "tools_offered": [
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "Write"
+    ]
+  },
+  "exposure": {
+    "commands": [
+      "ponytail:ponytail"
+    ]
+  },
+  "grade": {
+    "path": "grade/grade.json",
+    "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "pass": true
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "cache_creation_input_tokens": 18000,
+    "cache_read_input_tokens": 96000,
+    "output_tokens": 2400,
+    "total_tokens": 117600,
+    "charged_usd": 0.42,
+    "basis": "fixture",
+    "lines": [
+      "fixture-ledger-line-1",
+      "fixture-ledger-line-2"
+    ],
+    "complete": true
+  },
+  "time": {
+    "wall_ms": 48210,
+    "turns": 7
+  },
+  "started": "2026-11-13T16:01:00Z",
+  "ended": "2026-11-13T16:01:52Z"
+}

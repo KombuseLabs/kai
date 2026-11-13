@@ -1,0 +1,17 @@
+{
+  "value": {
+    "name": "ghost",
+    "addons": [
+      {
+        "name": "ponytail",
+        "kind": "plugin"
+      }
+    ],
+    "unknown": null,
+    "margin": 0.15,
+    "rank": -1,
+    "note": "a \"quoted\" line\n"
+  },
+  "text": "{\"addons\":[{\"kind\":\"plugin\",\"name\":\"ponytail\"}],\"margin\":0.15,\"name\":\"ghost\",\"note\":\"a \\\"quoted\\\" line\\n\",\"rank\":-1}",
+  "id": "sha256:8f50bab75c15639db96286d5ff5c706608bb778a52ccadfcdb8fedcae0c2d66f"
+}

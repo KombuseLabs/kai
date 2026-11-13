@@ -10,6 +10,12 @@ files with another program. One page per format.
 | [kai-agent-layer/1](kai-agent-layer-1.md) | `layer.json` of an agent's layer in the VM cache | `kai agent fetch` (crates/agent) |
 | [kai-addon-layer/1](kai-addon-layer-1.md) | `layer.json` of an add-on's layer in the VM cache | `kai agent fetch --addon` (crates/agent) |
 | [kai-vm-run/1](kai-vm-run-1.md) | `result.json` of a microVM run | `kai vm run` (crates/vm) |
+| [kai-study/2](kai-study-2.md) | `study.toml` of a study | a person, or `kai study new` |
+| [kai-lock/2](kai-lock-2.md) | `lock.json` of a study | `kai study lock` (engine::study) |
+| [kai-trial/3](kai-trial-3.md) | `trial.json` of one attempt of a study's slot | `kai study run` (engine::study) |
+| [kai-environment/1](kai-environment-1.md) | a record in `lock.json`: the baseline every arm shares | `kai study lock` |
+| [kai-variant/1](kai-variant-1.md) | a record in `lock.json`: what one arm adds | `kai study lock` |
+| [kai-canonical-json/1](kai-canonical-json-1.md) | no file: a JSON value's one text and its id | `helpers::canonical` |
 
 These rules hold for every format:
 

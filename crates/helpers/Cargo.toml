@@ -37,6 +37,10 @@ tokio = { version = "1.54.1", features = ["io-util", "process", "rt", "time"] }
 # helpers::hash: SHA-256. Already in the tree as rustls' crypto provider, so
 # it adds no crate.
 ring = "0.17.14"
+# helpers::canonical: a JSON value's canonical text and id. Already in the
+# tree (every crate that writes JSON uses it); the tests of logging read
+# JSON lines with it too.
+serde_json = "1.0.154"
 
 [features]
 # `helpers::testing`, what the tests of every crate share. Only the other
@@ -44,8 +48,6 @@ ring = "0.17.14"
 test-support = []
 
 [dev-dependencies]
-# The tests read the JSON lines a sink wrote.
-serde_json = "1.0.154"
 # Runs the async tests and the examples.
 tokio = { version = "1.54.1", features = ["macros", "rt"] }
 
