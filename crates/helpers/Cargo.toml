@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Infrastructure the other crates share: logging, settings files, HTTP clients"
+description = "Infrastructure the other crates share: logging, settings files, HTTP clients, child processes"
 
 [dependencies]
 tracing.workspace = true
@@ -29,10 +29,17 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no
 # rustls' crypto provider for reqwest: ring, rather than reqwest's default
 # aws-lc, which is a C build and brings more licences.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+# helpers::process: child processes, their output and their end. A program
+# starts the runtime; this crate never does. `process` brings
+# signal-hook-registry and its errno, the two crates this adds to the tree
+# (MIT or Apache-2.0).
+tokio = { version = "1.54.1", features = ["io-util", "process", "rt", "time"] }
 
 [dev-dependencies]
 # The tests read the JSON lines a sink wrote.
 serde_json = "1.0.154"
+# Runs the async tests and the examples.
+tokio = { version = "1.54.1", features = ["macros", "rt"] }
 
 [lints]
 workspace = true
