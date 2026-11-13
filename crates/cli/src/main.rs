@@ -16,6 +16,8 @@
 //!   one command in a fresh microVM on an image file.
 //! - `kai agent fetch` downloads the pinned Claude Code, checks it and
 //!   packs it as a read-only layer for a microVM, in the same cache.
+//! - `kai agent compare` runs one task with and without extra instructions,
+//!   in parallel by default, and keeps both result trees and answers.
 //!
 //! Results go to standard output, log lines never do: they go to standard
 //! error, at the level `--log-level` names, and with `--log-file` also to a

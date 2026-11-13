@@ -24,7 +24,59 @@ cargo run -- vm run --image rust -- cargo --version   # one command in a fresh m
 cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched and built in microVMs
 cargo run -- agent fetch            # the pinned Claude/SDK/Node runtime for a microVM
 cargo run -- agent fetch --addon ponytail   # Ponytail's skill, pinned, as a read-only layer
+cargo run -- agent compare --model <id> --extra-prompt "Use one HTML file." --output ./comparison -- "Build an HTML calculator."
 ```
+
+### One task, with and without an extra prompt
+
+`kai agent compare` runs the same task twice: once as given, once with
+the extra instructions before it. Both runs use the same model and
+settings, each in a fresh microVM with its own home and work tree. They
+run **in parallel** by default; `--sequential` runs one after the other
+on a smaller machine. The default pair uses two CPUs and 4 GiB per VM.
+
+```sh
+kai agent compare --model <id> \
+  --extra-prompt "Use a single HTML file with embedded CSS and JavaScript." \
+  --output ./comparison -- "Build an HTML calculator."
+```
+
+Use `--extra-prompt-file instructions.txt` instead of `--extra-prompt` for
+instructions in a file. `--tree ./starter` supplies starting files; they
+are copied once before either run starts, and both VMs receive that copy.
+Without `--tree`, both start empty. `--output` must be a new directory
+outside the starting tree; when omitted, kai creates one in its VM cache.
+
+The command prints the result paths. Open each generated application
+separately, such as `comparison/without/tree/index.html` and
+`comparison/with/tree/index.html` for the calculator:
+
+```text
+comparison/
+  input/             the shared starting files
+  without/
+    tree/            files produced without the extra prompt
+    answer.md        Claude's final text, when it returned one
+    status.txt       completed, incomplete, failed or interrupted
+    run/             the normal agent and VM records
+  with/
+    tree/            files produced with the extra prompt
+    answer.md
+    status.txt
+    run/
+```
+
+There is no grader or automatic winner. A failure on one side leaves the
+other side running and keeps its result; the command exits 0 only when
+both runs finish successfully. Ctrl-C or SIGTERM stops both VMs and keeps
+the records already written; an interrupted run may have no exported tree.
+
+As with `agent run`, first fetch the runtime and build the image, then
+supply the external proxy's `ANTHROPIC_BASE_URL` and placeholder
+`ANTHROPIC_API_KEY`. The proxy owns spending approval and limits. `--mock`
+uses a local fake API instead. Parallel runs, separate generated files,
+prompt delivery and partial failure are tested with that fake API in
+real microVMs; this is not evidence of model quality.
 
 ### Tickets
 

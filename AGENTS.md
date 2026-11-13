@@ -11,7 +11,10 @@ repository and dependencies in microVMs. `kai agent fetch` packs a pinned
 Claude/SDK/Node runtime as a read-only layer, and with `--addon` a pinned
 skill as one of its own. `kai agent run` sends one
 prompt, and `kai agent session` exchanges interactive commands/events with
-that runtime in a microVM. These paths are tested against a local fake
+that runtime in a microVM. `kai agent compare` runs the same task with and
+without extra instructions, in two fresh VMs, parallel by default; its
+generated trees and answers are kept separately for the owner to inspect.
+It has no grader or statistical verdict. These paths are tested against a local fake
 model; no ticket's check or real-model workflow has been verified yet.
 
 ## Where things are

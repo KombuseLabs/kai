@@ -6,6 +6,8 @@ use clap::{Args, Subcommand};
 use helpers::lines::BoundedLines;
 use std::path::{Path, PathBuf};
 
+mod compare;
+
 #[derive(Args)]
 pub(crate) struct AgentArgs {
     /// VM cache containing the image and pinned agent runtime
@@ -20,6 +22,8 @@ enum AgentCommand {
     Fetch(FetchArgs),
     /// Run one prompt in a fresh microVM and print its answer
     Run(RunArgs),
+    /// Run the same task twice, with and without an extra prompt, in parallel and with separate results
+    Compare(compare::CompareArgs),
     /// Exchange JSON input commands and ordered output events with a fresh microVM; a refused command is a `refused` line and the session goes on; exits 0 when the session closed and its VM ended cleanly, whatever its turns' outcomes, which the result events and agent.json give
     Session(SessionArgs),
 }
@@ -30,7 +34,7 @@ struct FetchArgs {
     addon: Option<String>,
 }
 #[derive(Args)]
-struct SessionArgs {
+struct ProfileArgs {
     /// Explicit model identifier; no default model is selected
     #[arg(long)]
     model: String,
@@ -40,9 +44,6 @@ struct SessionArgs {
     /// Initial work tree, copied into the guest
     #[arg(long)]
     tree: Option<PathBuf>,
-    /// Export the final work tree to a new directory
-    #[arg(long)]
-    tree_out: Option<PathBuf>,
     /// Read-only layers below the runtime, bottom first
     #[arg(long = "layer")]
     layers: Vec<PathBuf>,
@@ -61,12 +62,20 @@ struct SessionArgs {
     /// The most model requests Claude makes for one turn, from 1; a turn that reaches it ends with the outcome `limit`. Without it, only the VM's time limit bounds a turn
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=i64::from(::agent::session::MAX_TURNS)))]
     max_turns: Option<u32>,
-    /// Run directory, absent or empty
-    #[arg(long)]
-    run_dir: Option<PathBuf>,
     /// Use a local fake model endpoint with a fixed dummy credential
     #[arg(long)]
     mock: bool,
+}
+#[derive(Args)]
+struct SessionArgs {
+    #[command(flatten)]
+    profile: ProfileArgs,
+    /// Export the final work tree to a new directory
+    #[arg(long)]
+    tree_out: Option<PathBuf>,
+    /// Run directory, absent or empty
+    #[arg(long)]
+    run_dir: Option<PathBuf>,
     /// An add-on fetched before with `kai agent fetch --addon`: its layer is mounted and its directory given to Claude as a local plugin; may be given several times
     #[arg(long = "addon", value_name = "NAME", value_parser = clap::builder::PossibleValuesParser::new(::agent::addon::ADDONS.iter().map(|addon| addon.name)))]
     addons: Vec<String>,
@@ -86,6 +95,9 @@ struct RunArgs {
 pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Failure> {
     let cache =
         settings::vm_cache(args.cache.as_deref(), context.config).map_err(Failure::Usage)?;
+    if let AgentCommand::Compare(args) = &args.command {
+        return compare::dispatch(args, &cache, context);
+    }
     if let AgentCommand::Fetch(FetchArgs { addon: Some(name) }) = &args.command {
         return fetch_addon(name, &cache, context);
     }
@@ -111,39 +123,18 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
     let (session_args, prompt) = match &args.command {
         AgentCommand::Run(run) => (&run.session, Some(run.prompt.as_str())),
         AgentCommand::Session(session) => (session, None),
-        AgentCommand::Fetch(_) => unreachable!(),
+        AgentCommand::Fetch(_) | AgentCommand::Compare(_) => unreachable!(),
     };
     if prompt.is_some_and(|text| text.len() > ::agent::session::MAX_PROMPT) {
         return Err(Failure::Usage(anyhow::anyhow!("prompt exceeds 64 KiB")));
     }
-    // Never delegate env parsing to clap: its diagnostics can echo a secret.
-    let endpoint = std::env::var("ANTHROPIC_BASE_URL").map_err(|_| {
-        Failure::Usage(anyhow::anyhow!(
-            "ANTHROPIC_BASE_URL must name a loopback model route"
-        ))
-    })?;
-    let key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let route = ::agent::session::Route::new(&endpoint, key.as_deref(), session_args.mock)
-        .map_err(|e| Failure::Usage(e.into()))?;
     let run_dir = session_args
         .run_dir
         .clone()
         .unwrap_or_else(|| ::vm::new_run_dir(&cache, Some("agent")));
-    let mut options = ::agent::session::Options::new(session_args.model.clone(), route, run_dir);
-    options.image = session_args.image.clone();
-    options.tree = session_args.tree.clone();
+    let mut options = session_args.profile.options(run_dir)?;
     options.tree_out = session_args.tree_out.clone();
-    options.layers = session_args.layers.clone();
-    options.cpus = session_args.cpus;
-    options.memory_mib = session_args.memory;
-    options.timeout_s = session_args.timeout;
-    options.tools = if session_args.tools.is_empty() {
-        vec![]
-    } else {
-        session_args.tools.split(',').map(str::to_owned).collect()
-    };
     options.activation = session_args.activation.clone();
-    options.max_turns = session_args.max_turns;
     let passed = context.runtime.block_on(async {
         for name in &session_args.addons {
             let addon = ::agent::addon::named(name).expect("clap admits only known add-ons");
@@ -154,7 +145,7 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         tokio::select! {
-            result = execute(&cache, options, prompt) => result,
+            result = execute(&cache, options, prompt, None) => result,
             _ = tokio::signal::ctrl_c() => anyhow::bail!("interrupted; the VM was stopped"),
             _ = terminate.recv() => anyhow::bail!("terminated; the VM was stopped"),
         }
@@ -163,6 +154,35 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
         Ok(())
     } else {
         Err(Failure::Status(1))
+    }
+}
+
+impl ProfileArgs {
+    /// The same model, limits and input layers for every use of the profile.
+    fn options(&self, run_dir: PathBuf) -> Result<::agent::session::Options, Failure> {
+        // Never delegate env parsing to clap: its diagnostics can echo a secret.
+        let endpoint = std::env::var("ANTHROPIC_BASE_URL").map_err(|_| {
+            Failure::Usage(anyhow::anyhow!(
+                "ANTHROPIC_BASE_URL must name a loopback model route"
+            ))
+        })?;
+        let key = std::env::var("ANTHROPIC_API_KEY").ok();
+        let route = ::agent::session::Route::new(&endpoint, key.as_deref(), self.mock)
+            .map_err(|e| Failure::Usage(e.into()))?;
+        let mut options = ::agent::session::Options::new(self.model.clone(), route, run_dir);
+        options.image = self.image.clone();
+        options.tree = self.tree.clone();
+        options.layers = self.layers.clone();
+        options.cpus = self.cpus;
+        options.memory_mib = self.memory;
+        options.timeout_s = self.timeout;
+        options.tools = if self.tools.is_empty() {
+            vec![]
+        } else {
+            self.tools.split(',').map(str::to_owned).collect()
+        };
+        options.max_turns = self.max_turns;
+        Ok(options)
     }
 }
 
@@ -201,6 +221,7 @@ async fn execute(
     cache: &Path,
     options: ::agent::session::Options,
     prompt: Option<&str>,
+    answer_file: Option<&Path>,
 ) -> anyhow::Result<bool> {
     let run_dir = options.run_dir.clone();
     let activation = options.activation.clone();
@@ -212,7 +233,11 @@ async fn execute(
             let event = session.next_event().await?;
             if event.kind == "result" {
                 if let Some(text) = event.payload["result"].as_str() {
-                    println!("{text}");
+                    if let Some(path) = answer_file {
+                        helpers::fs::write_whole(path, text.as_bytes())?;
+                    } else {
+                        println!("{text}");
+                    }
                 }
                 break;
             }
