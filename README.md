@@ -22,7 +22,7 @@ cargo run -- vm image build rust    # the image of kai's Rust recipe, with Docke
 cargo run -- vm image list          # the recipes, and which images are built
 cargo run -- vm run --image rust -- cargo --version   # one command in a fresh microVM
 cargo run -- ticket deps <number>   # a ticket's repository and crates, fetched and built in microVMs
-cargo run -- agent fetch            # the pinned Claude Code as a read-only layer for a microVM
+cargo run -- agent fetch            # the pinned Claude/SDK/Node runtime for a microVM
 ```
 
 ### Tickets
@@ -123,17 +123,47 @@ in `/src`, offline, with the dependencies built:
 `kai vm run --image rust --layer <fetch> --layer <build> --cwd /src -- cargo test`.
 A refused ticket is not fetched.
 
-`kai agent fetch` downloads Claude Code 2.1.322 for Linux from Anthropic's
-release bucket, checks it against the SHA-256 pinned in
-[crates/agent/src/lib.rs](crates/agent/src/lib.rs), and packs it with
-squashfs-tools as a layer that holds `/opt/kai/agents/claude/2.1.322/claude`
-and nothing else, every file root's. It prints the layer's path, under
-`agents/` in the cache; a second call checks the layer afresh and makes
-nothing. A layer that does not check out is moved aside and made again
-from the checked download, and what a stopped fetch left is removed. A
-run takes the layer with `--layer`:
-`kai vm run --image rust --layer <layer> -- /opt/kai/agents/claude/2.1.322/claude --version`.
-No agent works on a task yet, and nothing in kai calls a model.
+`kai agent fetch` downloads Claude Code 2.1.323, Claude Agent SDK 0.3.323
+and Node 22.22.0 for Linux x86_64, verifies the artifact and extracted-file
+hashes in [the runtime pins](crates/agent/src/runtime.rs), and packs them
+with the compiled-in wrapper under `/opt/kai/agents/session`. All files
+are root-owned in a read-only layer. No package manager or installer runs
+in the guest. The SDK's self-contained entry point is used directly; its
+optional integrations are not part of this profile.
+
+A second fetch revalidates the layer. An invalid entry is moved aside and
+rebuilt; interrupted builds recover. The whole runtime tuple and wrapper
+bytes determine the cache identity. `agent run` and `agent session` only
+use a previously fetched layer and never download implicitly.
+
+`kai agent run --model <id> --tree ./fixture --tree-out ./after -- "<prompt>"`
+runs one turn. `kai agent session --model <id> --tree ./fixture` accepts
+newline-delimited JSON commands on stdin and emits ordered JSON events on
+stdout: `{"op":"send","text":"..."}`, `{"op":"interrupt"}`,
+`{"op":"close"}`. Wait for a turn's result (and its interrupt acknowledgement
+when requested) before sending another. A command the session cannot take
+(not one of these, a send during a turn, an interrupt without one) is
+answered with a `refused` line and the session goes on. EOF closes the
+session; Ctrl-C or SIGTERM drops it and stops the VM. `agent session`
+exits 0 when the session closed and its VM ended cleanly, whatever the
+turns' outcomes; `agent run` exits 0 only for an answered turn. Sessions
+continue within one live VM; resuming after a process or VM restart is
+not implemented.
+
+Both commands require `ANTHROPIC_BASE_URL` naming an explicit loopback HTTP
+port. Normal mode accepts only a proxy-issued placeholder of the supported
+format in `ANTHROPIC_API_KEY`; `--mock` discards that value and uses a fixed
+dummy against an explicitly supplied local fake endpoint. Approval, spending
+limits and provider credentials belong to the external proxy. No real
+model workflow has been verified. The tested path uses a local fake API;
+tool execution and permission interaction have not yet been qualified.
+
+The unprivileged guest owns its work tree and fresh home. An explicit model,
+a tool allowlist and VM limits configure the run. `events.jsonl`,
+`prompt-<turn>.md`, `agent.json` and the VM's `result.json` describe what
+happened; SDK cost estimates are not recorded. See [agent sessions](docs/agent.md),
+the [session protocol](contracts/kai-agent-session-1.md) and
+[run record](contracts/kai-agent-run-1.md).
 
 Limits today:
 
@@ -167,8 +197,8 @@ built without its init, and `kai vm doctor` says so.
 
 - A ticket's check, its hidden tests, run in a microVM on the layers
   `kai ticket deps` makes.
-- An agent at work in a microVM: Claude Code on a tree, through a model
-  route on this machine, and the record of what it did.
+- A qualified tool-edit workflow and a real-model run through the external
+  proxy. Interactive transport is tested with a fake API only.
 - The variants of an agent, the one in use today among them, a run of
   each on the qualified tickets, and the verdict with what each cost.
 

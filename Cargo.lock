@@ -196,6 +196,7 @@ dependencies = [
  "helpers",
  "proxy",
  "serde",
+ "serde_json",
  "store",
  "tokio",
  "tracing",

@@ -32,7 +32,7 @@ pub(crate) enum Command {
     Store(store::StoreCommand),
     /// microVMs: what running one needs, the pinned Firecracker and guest kernel, and one command in a fresh VM
     Vm(vm::VmArgs),
-    /// An agent in a microVM: the pinned Claude Code as a read-only layer
+    /// Pinned agent runtimes and one-shot or interactive microVM sessions
     Agent(agent::AgentArgs),
 }
 

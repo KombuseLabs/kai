@@ -1,67 +1,259 @@
-//! `kai agent`: an agent in a microVM. For now its pinned program as a
-//! read-only layer, in kai's VM cache.
-
-use std::path::{Path, PathBuf};
-
-use anyhow::Context as _;
-use clap::{Args, Subcommand};
-use tokio::runtime::Runtime;
-
+//! One-shot and live agent sessions use the same isolated SDK runtime.
 use super::{Context, Failure};
 use crate::settings;
+use anyhow::Context as _;
+use clap::{Args, Subcommand};
+use helpers::lines::BoundedLines;
+use std::path::{Path, PathBuf};
 
 #[derive(Args)]
 pub(crate) struct AgentArgs {
-    /// kai's VM cache, where the agent's layer is kept; without it, vm.cache in kai.toml, else ~/.cache/kai/vm
+    /// VM cache containing the image and pinned agent runtime
     #[arg(long, global = true, env = "KAI_VM_CACHE", value_name = "DIR")]
     cache: Option<PathBuf>,
-
     #[command(subcommand)]
     command: AgentCommand,
 }
-
 #[derive(Subcommand)]
 enum AgentCommand {
-    /// Downloads the pinned Claude Code, checks it against its SHA-256, packs it as a read-only layer, every file root's, and prints the layer's path; a layer in the cache that checks out is used as it is, one that does not is moved aside and made again
+    /// Fetch and verify the pinned Claude, SDK and Node runtime layer
     Fetch,
+    /// Run one prompt in a fresh microVM and print its answer
+    Run(RunArgs),
+    /// Exchange JSON input commands and ordered output events with a fresh microVM; a refused command is a `refused` line and the session goes on; exits 0 when the session closed and its VM ended cleanly, whatever its turns' outcomes, which the result events and agent.json give
+    Session(SessionArgs),
+}
+#[derive(Args)]
+struct SessionArgs {
+    /// Explicit model identifier; no default model is selected
+    #[arg(long)]
+    model: String,
+    /// Built image recipe
+    #[arg(long, default_value = "rust")]
+    image: String,
+    /// Initial work tree, copied into the guest
+    #[arg(long)]
+    tree: Option<PathBuf>,
+    /// Export the final work tree to a new directory
+    #[arg(long)]
+    tree_out: Option<PathBuf>,
+    /// Read-only layers below the runtime, bottom first
+    #[arg(long = "layer")]
+    layers: Vec<PathBuf>,
+    /// Guest processors
+    #[arg(long, default_value_t = 2)]
+    cpus: u32,
+    /// Guest memory in MiB
+    #[arg(long, default_value_t = 4096)]
+    memory: u32,
+    /// Whole VM time limit, in seconds
+    #[arg(long, default_value_t = 600)]
+    timeout: u64,
+    /// Comma-separated tool allowlist; an empty string disables tools
+    #[arg(long, default_value = "Read,Edit,Write,Bash,Glob,Grep")]
+    tools: String,
+    /// Run directory, absent or empty
+    #[arg(long)]
+    run_dir: Option<PathBuf>,
+    /// Use a local fake model endpoint with a fixed dummy credential
+    #[arg(long)]
+    mock: bool,
+}
+#[derive(Args)]
+struct RunArgs {
+    #[command(flatten)]
+    session: SessionArgs,
+    /// Prompt, as one argument; never interpreted by a shell
+    #[arg(last = true, required = true)]
+    prompt: String,
 }
 
 pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Failure> {
     let cache =
         settings::vm_cache(args.cache.as_deref(), context.config).map_err(Failure::Usage)?;
-    match &args.command {
-        AgentCommand::Fetch => fetch(&cache, context.runtime),
+    if matches!(args.command, AgentCommand::Fetch) {
+        let fetched = context
+            .runtime
+            .block_on(::agent::runtime::fetch(&cache))
+            .context("cannot fetch agent runtime")?;
+        println!(
+            "{}: {}",
+            if fetched.reused {
+                "verified runtime"
+            } else {
+                "prepared runtime"
+            },
+            fetched.file.display()
+        );
+        if let Some((path, reason)) = fetched.quarantined {
+            eprintln!("kai: invalid runtime moved to {}: {reason}", path.display());
+        }
+        return Ok(());
+    }
+    let (session_args, prompt) = match &args.command {
+        AgentCommand::Run(run) => (&run.session, Some(run.prompt.as_str())),
+        AgentCommand::Session(session) => (session, None),
+        AgentCommand::Fetch => unreachable!(),
+    };
+    if prompt.is_some_and(|text| text.len() > ::agent::session::MAX_PROMPT) {
+        return Err(Failure::Usage(anyhow::anyhow!("prompt exceeds 64 KiB")));
+    }
+    // Never delegate env parsing to clap: its diagnostics can echo a secret.
+    let endpoint = std::env::var("ANTHROPIC_BASE_URL").map_err(|_| {
+        Failure::Usage(anyhow::anyhow!(
+            "ANTHROPIC_BASE_URL must name a loopback model route"
+        ))
+    })?;
+    let key = std::env::var("ANTHROPIC_API_KEY").ok();
+    let route = ::agent::session::Route::new(&endpoint, key.as_deref(), session_args.mock)
+        .map_err(|e| Failure::Usage(e.into()))?;
+    let run_dir = session_args
+        .run_dir
+        .clone()
+        .unwrap_or_else(|| ::vm::new_run_dir(&cache, Some("agent")));
+    let mut options = ::agent::session::Options::new(session_args.model.clone(), route, run_dir);
+    options.image = session_args.image.clone();
+    options.tree = session_args.tree.clone();
+    options.tree_out = session_args.tree_out.clone();
+    options.layers = session_args.layers.clone();
+    options.cpus = session_args.cpus;
+    options.memory_mib = session_args.memory;
+    options.timeout_s = session_args.timeout;
+    options.tools = if session_args.tools.is_empty() {
+        vec![]
+    } else {
+        session_args.tools.split(',').map(str::to_owned).collect()
+    };
+    let passed = context.runtime.block_on(async {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            result = execute(&cache, options, prompt) => result,
+            _ = tokio::signal::ctrl_c() => anyhow::bail!("interrupted; the VM was stopped"),
+            _ = terminate.recv() => anyhow::bail!("terminated; the VM was stopped"),
+        }
+    })?;
+    if passed {
+        Ok(())
+    } else {
+        Err(Failure::Status(1))
     }
 }
 
-/// Puts Claude Code into the cache as a layer and says what it did.
-fn fetch(cache: &Path, runtime: &Runtime) -> Result<(), Failure> {
-    let agent = &::agent::CLAUDE;
-    let fetched = runtime
-        .block_on(::agent::layer::fetch(agent, cache))
-        .with_context(|| format!("cannot fetch {}", agent.binary.name))?;
-    if fetched.removed > 0 {
+async fn execute(
+    cache: &Path,
+    options: ::agent::session::Options,
+    prompt: Option<&str>,
+) -> anyhow::Result<bool> {
+    let run_dir = options.run_dir.clone();
+    let mut session = ::agent::session::Session::start(cache, options).await?;
+    let passed;
+    if let Some(prompt) = prompt {
+        session.send(prompt).await?;
+        loop {
+            let event = session.next_event().await?;
+            if event.kind == "result" {
+                if let Some(text) = event.payload["result"].as_str() {
+                    println!("{text}");
+                }
+                break;
+            }
+        }
+        passed = session
+            .turns()
+            .last()
+            .is_some_and(|turn| turn.outcome == "answered");
+    } else {
         println!(
-            "{}: removed {} left over by a fetch that was stopped",
-            agent.binary.name, fetched.removed
+            "{}",
+            serde_json::json!({"format": ::agent::runtime::FORMAT, "seq": 1, "kind":"ready", "payload":{"sdk": ::agent::runtime::SDK_VERSION,"node": ::agent::runtime::NODE_VERSION,"claude": ::agent::runtime::CLAUDE.version}})
         );
+        // The protocol's frame limit, not the prompt's: a prompt of 64 KiB
+        // can take several times that once escaped as JSON.
+        let mut lines = BoundedLines::new(tokio::io::stdin(), ::agent::session::MAX_FRAME);
+        let mut input_failed = false;
+        loop {
+            tokio::select! {
+                line = lines.next() => {
+                    let line = match line {
+                        Ok(Some(line)) => line,
+                        Ok(None) => break,
+                        // Past the frame limit, or cut off by the end of the
+                        // input: the stream cannot be read on, so the session
+                        // is closed as a close command would.
+                        Err(err) => {
+                            eprintln!("kai: {err}; closing the session");
+                            input_failed = true;
+                            break;
+                        }
+                    };
+                    match input(&mut session, &line).await? {
+                        Ok(Next::Continue) => {}
+                        Ok(Next::Close) => break,
+                        Err(reason) => println!(
+                            "{}",
+                            serde_json::json!({"format": ::agent::runtime::FORMAT, "kind": "refused", "payload": {"reason": reason}})
+                        ),
+                    }
+                },
+                event = session.next_event() => { println!("{}", serde_json::to_string(&event?)?); },
+            }
+        }
+        // The session's own outcome: whether it closed and its VM ended
+        // cleanly. Each turn's outcome is in its result event and agent.json.
+        passed = !input_failed;
     }
-    if let Some((aside, why)) = &fetched.quarantined {
-        println!(
-            "{}: the layer in the cache did not check out ({why}); moved to {}, which can go once no VM uses it",
-            agent.binary.name,
-            aside.display()
-        );
-    }
-    let what = match (fetched.reused, fetched.downloaded) {
-        (true, _) => "already there, checked",
-        (false, true) => "downloaded, checked, packed",
-        (false, false) => "packed from the checked download in the cache",
+    let result = session
+        .close_with(|event| {
+            if prompt.is_none() {
+                println!(
+                    "{}",
+                    serde_json::to_string(event).expect("event fields serialize")
+                );
+            }
+        })
+        .await?;
+    eprintln!("kai: agent run saved in {}", run_dir.display());
+    Ok(passed
+        && result.outcome == ::vm::Outcome::Exited
+        && result.exit_code == Some(0)
+        && result.tree_out != Some(false))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
+enum Input {
+    Send { text: String },
+    Interrupt,
+    Close,
+}
+
+/// What the interactive loop does after an input command.
+enum Next {
+    Continue,
+    Close,
+}
+
+/// One input command, carried out. A command the session refuses without
+/// changing anything (not JSON or not a command, a send while a turn is
+/// active, an interrupt without one or twice) is `Err` with a reason that
+/// echoes nothing of the input, and the session goes on; any other error
+/// has ended the session.
+async fn input(
+    session: &mut ::agent::session::Session,
+    line: &[u8],
+) -> anyhow::Result<Result<Next, &'static str>> {
+    let Ok(command) = serde_json::from_slice::<Input>(line) else {
+        return Ok(Err("invalid session input command"));
     };
-    println!(
-        "{}: {what}; layer {}",
-        agent.binary.name,
-        fetched.file.display()
-    );
-    Ok(())
+    let done = match command {
+        Input::Send { text } => session.send(&text).await.map(drop),
+        Input::Interrupt => session.interrupt().await,
+        Input::Close => return Ok(Ok(Next::Close)),
+    };
+    match done {
+        Ok(()) => Ok(Ok(Next::Continue)),
+        Err(::agent::session::Error::Invalid(reason)) => Ok(Err(reason)),
+        Err(error) => Err(error.into()),
+    }
 }

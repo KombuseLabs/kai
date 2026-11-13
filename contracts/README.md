@@ -5,6 +5,8 @@ files with another program. One page per format.
 
 | Format | File | Written by |
 | --- | --- | --- |
+| [kai-agent-session/1](kai-agent-session-1.md) | `events.jsonl`, host/guest stream | `agent` and its guest wrapper |
+| [kai-agent-run/1](kai-agent-run-1.md) | `agent.json` | `agent` |
 | [kai-vm-run/1](kai-vm-run-1.md) | `result.json` of a microVM run | `kai vm run` (crates/vm) |
 
 These rules hold for every format:

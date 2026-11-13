@@ -309,3 +309,58 @@ async fn two_fetches_at_once_download_and_build_once() {
     assert_eq!(built, 1, "{one:?} {two:?}");
     assert_eq!(program_in(&one.file), body);
 }
+
+#[tokio::test]
+#[ignore = "needs squashfs-tools"]
+async fn a_runtime_bundle_reuses_validated_bytes_and_changes_identity_with_its_wrapper() {
+    use agent::layer::{Inline, cached_bundle, fetch_bundle};
+    let body = program();
+    let server = serve(body.clone(), 2).await;
+    let first_agent = agent(&server, &body);
+    let mut second_agent = first_agent;
+    second_agent.path = "/opt/kai/agents/invented/runtime";
+    second_agent.binary.file = "runtime-1.0";
+    let inline = [Inline {
+        path: "/opt/kai/agents/invented/wrapper.mjs",
+        bytes: b"fixture wrapper",
+        version: "1",
+    }];
+    let cache = dir("bundle");
+    let first = fetch_bundle(&first_agent, &[second_agent], &inline, &cache, |_| {})
+        .await
+        .unwrap();
+    assert_eq!(first.info.members.len(), 2);
+    let found = cached_bundle(&first_agent, &[second_agent], &inline, &cache)
+        .await
+        .unwrap();
+    assert_eq!(first.info, found.info);
+    let reused = fetch_bundle(&first_agent, &[second_agent], &inline, &cache, |_| {})
+        .await
+        .unwrap();
+    assert!(reused.reused);
+    std::fs::write(&first.file, b"corrupt").unwrap();
+    assert!(
+        cached_bundle(&first_agent, &[second_agent], &inline, &cache)
+            .await
+            .is_err()
+    );
+    let rebuilt = fetch_bundle(&first_agent, &[second_agent], &inline, &cache, |_| {})
+        .await
+        .unwrap();
+    assert!(rebuilt.quarantined.is_some());
+    assert_eq!(rebuilt.info.layer, first.info.layer);
+    let changed = [Inline {
+        path: inline[0].path,
+        bytes: b"changed wrapper",
+        version: "1",
+    }];
+    assert!(
+        cached_bundle(&first_agent, &[second_agent], &changed, &cache)
+            .await
+            .is_err()
+    );
+    let other = fetch_bundle(&first_agent, &[second_agent], &changed, &cache, |_| {})
+        .await
+        .unwrap();
+    assert_ne!(other.info.key, first.info.key);
+}

@@ -37,12 +37,14 @@ helpers = { path = "../helpers" }
 proxy = { path = "../proxy" }
 # The shape of kai.toml, read through helpers::config.
 serde.workspace = true
+# The line protocol of interactive agent sessions.
+serde_json = "1.0.154"
 store = { path = "../store" }
 # The async runtime the library crates' futures run on. A program starts
 # it; a library crate never does. `signal` and `macros`: `kai vm run`
 # waits for its run, Ctrl-C or SIGTERM, whichever comes first, and stops
 # the VM on either signal.
-tokio = { version = "1.54.1", features = ["macros", "rt", "signal"] }
+tokio = { version = "1.54.1", features = ["macros", "rt", "signal", "io-std", "io-util"] }
 tracing.workspace = true
 types = { path = "../types" }
 # `kai vm`: doctor, fetch, images and runs.

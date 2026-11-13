@@ -16,8 +16,8 @@ serde.workspace = true
 serde_json = "1.0.154"
 # Layer preparation errors, as in the other library crates.
 thiserror = "2.0.21"
-# Packing tools use async processes; blocking file copies leave the runtime thread.
-tokio = { version = "1.54.1", features = ["process", "rt"] }
+# Async packing, bounded session I/O, transport timeouts and VM task ownership.
+tokio = { version = "1.54.1", features = ["process", "rt", "net", "io-util", "time", "macros", "sync"] }
 tracing.workspace = true
 # Pinned artefacts and verified downloads; no dependency on the engine.
 vm = { path = "../vm" }

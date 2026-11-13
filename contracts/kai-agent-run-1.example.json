@@ -1,0 +1,37 @@
+{
+  "format": "kai-agent-run/1",
+  "agent": "claude-code",
+  "version": "2.1.323",
+  "sdk": "0.3.323",
+  "node": "22.22.0",
+  "layer": {
+    "format": "kai-agent-layer/1",
+    "key": "fixture",
+    "agent": "fixture",
+    "version": "1",
+    "binary": "fixture",
+    "binary_len": 1,
+    "path": "/fixture",
+    "layer": "fixture",
+    "layer_len": 1,
+    "packing": [],
+    "mksquashfs": "fixture"
+  },
+  "model": "fixture",
+  "tools": [
+    "Read",
+    "Edit",
+    "Write",
+    "Bash",
+    "Glob",
+    "Grep"
+  ],
+  "mock": true,
+  "route_port": 1,
+  "session_id": null,
+  "turns": [],
+  "cancelled_turn": null,
+  "vm": null,
+  "outcome": "dropped",
+  "reason": null
+}

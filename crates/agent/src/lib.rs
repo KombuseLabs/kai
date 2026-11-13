@@ -1,11 +1,14 @@
-//! An agent in a microVM. For now one: Claude Code at the version kai pins
-//! ([`CLAUDE`]), brought into a VM as a read-only layer ([`layer`]).
+//! Claude Code in a microVM: a pinned read-only [`runtime`], built through
+//! [`layer`], and an interactive [`session`] over a bounded guest protocol.
+//! [`CLAUDE`] retains the original single-program pin for existing layer users.
 //!
 //! A new version is a change of the pin and nothing else, as for
 //! Firecracker in `vm`'s pins: no `latest`, no installer, no update in a
 //! VM.
 
 pub mod layer;
+pub mod runtime;
+pub mod session;
 
 /// An agent kai can put into a VM: one program, pinned, and where it lies
 /// in the guest.

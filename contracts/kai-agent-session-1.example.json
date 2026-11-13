@@ -1,0 +1,10 @@
+{
+  "format": "kai-agent-session/1",
+  "seq": 1,
+  "kind": "ready",
+  "payload": {
+    "sdk": "0.3.323",
+    "claude": "2.1.323",
+    "node": "22.22.0"
+  }
+}
