@@ -14,7 +14,7 @@ Firecracker microVM. No ticket is run yet.
 | --- | --- |
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai`. `main.rs` starts up, `settings.rs` reads `kai.toml`, `src/cmd/` has a module per command group |
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
-| `crates/engine/` | what kai does, as a library: today the static qualify rules; never depends on `cli` |
+| `crates/engine/` | what kai does, as a library: the static qualify rules, and `deps`, a ticket's repository and dependencies fetched and built in microVMs as two layers; never depends on `cli` |
 | `crates/store/` | the store: a SQLite file of the tickets kai fetched, and where each board's last sync stopped |
 | `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |

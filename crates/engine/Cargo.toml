@@ -9,8 +9,25 @@ publish = false
 description = "What kai does, as a library; the command line calls it"
 
 [dependencies]
+# A layer's JSON put in place whole, and the SHA-256 of a layer's key
+# (deps).
+helpers = { path = "../helpers" }
+# The fetch run's egress: which hosts, which fence (deps).
+proxy = { path = "../proxy" }
+# A layer's JSON in the cache (deps).
+serde.workspace = true
+# Writes and reads that JSON. Already in the tree through github.
+serde_json = "1.0.154"
+# The module's error type, as in helpers.
+thiserror = "2.0.21"
 tracing.workspace = true
 types = { path = "../types" }
+# The fetch run and the build run (deps).
+vm = { path = "../vm" }
+
+[dev-dependencies]
+# Runs the async tests.
+tokio = { version = "1.54.1", features = ["macros", "rt"] }
 
 [lints]
 workspace = true
