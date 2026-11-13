@@ -11,6 +11,7 @@ and further crates kai consists of is not decided.
 | Path | What it is |
 | --- | --- |
 | `crates/cli/` | the command line (clap): arguments, output, exit status; builds the program `kai` |
+| `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library; never depends on `cli` |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`, and `config`, which finds and reads settings files |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
