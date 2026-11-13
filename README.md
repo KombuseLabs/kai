@@ -386,3 +386,21 @@ built without its init, and `kai vm doctor` says so.
 Copyright 2026 Kombuse Labs. Apache-2.0, see [LICENSE](LICENSE) and
 [NOTICE](NOTICE). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security
 reports: [SECURITY.md](SECURITY.md).
+
+### View comparison metrics
+
+New comparisons also write [pair.json](contracts/kai-pair-1.md), a frozen
+record of the task, arm names and separate execution times. With
+eval-reporter 0.8 or newer, collect one result directory:
+
+```sh
+eval-reporter collect kai-run .runs/ponytail/results/<timestamp> --codebase none --send
+```
+
+The reporter's existing watcher can discover these results automatically.
+In its policy, add `[kai_run]` with `runs = ["/absolute/path/to/task/results"]`,
+`codebase = "none"` and `auto_send = true`. Sending also requires the global
+`auto_send` setting and a configured sink. Run `eval-reporter watch`.
+Bench Board displays both answers, result paths, input/output/cache tokens,
+settled proxy costs and individual runtimes. Unknown values stay unknown;
+there is no grader or winner. Old results without `pair.json` are not imported.

@@ -257,6 +257,49 @@ async fn vm_pair(sequential: bool, fail_with: bool, entry: Entry) {
         assert!(nanos.parse::<u32>().unwrap() < 1_000_000_000);
         results[0].clone()
     };
+    let pair: Value =
+        serde_json::from_slice(&std::fs::read(output.join("pair.json")).unwrap()).unwrap();
+    assert_eq!(pair["format"], "kai-pair/1");
+    assert_eq!(pair["state"], "finished");
+    assert_eq!(pair["without"]["state"], "completed");
+    assert_eq!(
+        pair["with"]["state"],
+        if fail_with { "incomplete" } else { "completed" }
+    );
+    for side in ["without", "with"] {
+        assert!(pair[side]["elapsed_ms"].as_u64().unwrap() > 0);
+        assert!(pair[side]["finished_at"].as_u64() >= pair[side]["started_at"].as_u64());
+    }
+    if !sequential {
+        assert!(pair["without"]["started_at"].as_u64() < pair["with"]["finished_at"].as_u64());
+        assert!(pair["with"]["started_at"].as_u64() < pair["without"]["finished_at"].as_u64());
+    }
+    // Export only synthetic evidence from this fake API test for downstream reader tests.
+    if let Some(export) = std::env::var_os("KAI_COMPARE_FIXTURE_OUT") {
+        assert!(
+            !fail_with && !sequential,
+            "export one successful pair at a time"
+        );
+        let export = std::path::PathBuf::from(export);
+        std::fs::create_dir(&export).unwrap();
+        std::fs::copy(output.join("pair.json"), export.join("pair.json")).unwrap();
+        std::fs::create_dir(export.join("input")).unwrap();
+        std::fs::copy(output.join("input/seed.txt"), export.join("input/seed.txt")).unwrap();
+        for side in ["without", "with"] {
+            let name = pair[side]["name"].as_str().unwrap();
+            std::fs::create_dir_all(export.join(name).join("run")).unwrap();
+            std::fs::create_dir(export.join(name).join("tree")).unwrap();
+            for file in [
+                "status.txt",
+                "answer.md",
+                "run/agent.json",
+                "run/prompt-1.md",
+                "tree/index.html",
+            ] {
+                std::fs::copy(output.join(name).join(file), export.join(name).join(file)).unwrap();
+            }
+        }
+    }
     let mut sessions = vec![];
     for name in ["without", "with"] {
         let arm = if matches!(entry, Entry::Direct) {

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub(super) mod named;
+mod record;
 
 #[derive(Args, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -50,6 +51,8 @@ impl ArmNames {
 
 #[derive(Args)]
 pub(super) struct CompareArgs {
+    #[arg(skip)]
+    name: Option<String>,
     #[command(flatten)]
     profile: ProfileArgs,
     #[command(flatten)]
@@ -136,6 +139,8 @@ pub(super) fn dispatch(
             options.tree_out = Some(output.join(name).join("tree"));
             write_whole(&output.join(name).join("status.txt"), b"pending\n")?;
         }
+        let mut record = record::Record::new(args, &extra, &output)?;
+        record.save(&output)?;
         println!("comparison: {}", output.display());
         println!(
             "{without_name} (without extra prompt): {}",
@@ -150,8 +155,14 @@ pub(super) fn dispatch(
         let runs = async {
             let without_dir = output.join(without_name);
             let with_dir = output.join(with_name);
-            let first = run(cache, without, &args.prompt, &without_dir);
-            let second = run(cache, with, &with_prompt, &with_dir);
+            let first = run(
+                cache,
+                without,
+                &args.prompt,
+                &without_dir,
+                &mut record.without,
+            );
+            let second = run(cache, with, &with_prompt, &with_dir, &mut record.with);
             if args.sequential {
                 (first.await, second.await)
             } else {
@@ -163,6 +174,7 @@ pub(super) fn dispatch(
             _ = tokio::signal::ctrl_c() => None,
             _ = terminate.recv() => None,
         };
+        record.finish(results.is_none());
         let Some((first, second)) = results else {
             for name in [without_name, with_name] {
                 let path = output.join(name).join("status.txt");
@@ -173,11 +185,13 @@ pub(super) fn dispatch(
                     write_whole(&path, b"interrupted\n")?;
                 }
             }
+            record.save(&output)?;
             anyhow::bail!(
                 "interrupted; both VMs stopped; results kept in {}",
                 output.display()
             );
         };
+        record.save(&output)?;
         let mut passed = true;
         for (name, result) in [(without_name, first), (with_name, second)] {
             match result {
@@ -260,9 +274,21 @@ async fn run(
     options: ::agent::session::Options,
     prompt: &str,
     dir: &Path,
+    record: &mut record::Arm,
 ) -> anyhow::Result<bool> {
+    record.started_at = Some(record::now()?);
+    record.state = "running".into();
+    let started = std::time::Instant::now();
     write_whole(&dir.join("status.txt"), b"running\n")?;
     let result = execute(cache, options, Some(prompt), Some(&dir.join("answer.md"))).await;
+    record.finished_at = Some(record::now()?);
+    record.elapsed_ms = Some(u64::try_from(started.elapsed().as_millis())?);
+    record.state = match &result {
+        Ok(true) => "completed",
+        Ok(false) => "incomplete",
+        Err(_) => "failed",
+    }
+    .into();
     let status = match &result {
         Ok(true) => "completed\n".to_owned(),
         Ok(false) => "incomplete; see run/agent.json and run/result.json\n".to_owned(),

@@ -19,6 +19,16 @@ use std::path::{Path, PathBuf};
 
 use ring::digest;
 
+/// A fresh 128-bit random identifier, encoded as lowercase hex.
+pub fn random_id() -> io::Result<String> {
+    use ring::rand::SecureRandom as _;
+    let mut bytes = [0; 16];
+    ring::rand::SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| io::Error::other("cannot obtain random identifier"))?;
+    Ok(hex(&bytes))
+}
+
 /// The SHA-256 of `bytes`.
 pub fn sha256_bytes(bytes: &[u8]) -> String {
     hex(digest::digest(&digest::SHA256, bytes).as_ref())

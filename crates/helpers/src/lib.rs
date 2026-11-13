@@ -17,3 +17,4 @@ pub mod logging;
 pub mod process;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+pub mod tree_digest;

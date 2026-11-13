@@ -83,6 +83,7 @@ pub(crate) fn run_named(args: &NamedRunArgs, context: &Context<'_>) -> Result<()
     let cache =
         settings::vm_cache(args.cache.as_deref(), context.config).map_err(Failure::Usage)?;
     let compare = CompareArgs {
+        name: Some(args.name.clone()),
         arms: definition.arms,
         profile: ProfileArgs {
             model: definition.model,
