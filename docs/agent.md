@@ -44,7 +44,9 @@ joining the VM; `close` is the convenience variant without a callback.
 Drop stops the VM and records an incomplete outcome. A turn's
 `tools_offered` is what Claude's `init` event of that turn says it offers
 the model, which can be fewer than the options' `tools`; a difference is
-logged once as a warning.
+logged once as a warning. The options' `max_turns` bounds the model
+requests of each turn; a turn that reaches it ends with the outcome
+`limit`, and the next turn starts with the full limit again.
 
 An add-on ([`agent::addon`](../crates/agent/src/addon.rs)) comes in through
 the options' `addons`: its layer is mounted above the runtime's and its
@@ -77,5 +79,7 @@ the wrapper's empty setting sources do. One test packs an invented skill
 with a marker as an add-on and runs four fresh sessions against a stand-in
 that keeps every request's body: plain, the add-on installed but not
 invoked, the add-on invoked, and plain again; the marker reaches the model
-only in the third, in the same request as the task. They make no provider
+only in the third, in the same request as the task. One test answers
+every request with a tool call: with a limit of two, each of two turns
+ends at two requests with the outcome `limit`. They make no provider
 call. Real-model qualification is separate.

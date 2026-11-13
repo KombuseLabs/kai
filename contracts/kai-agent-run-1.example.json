@@ -26,6 +26,7 @@
     "Glob",
     "Grep"
   ],
+  "max_turns": null,
   "addons": [],
   "activation": null,
   "mock": true,

@@ -72,11 +72,13 @@ async function command(m) {
   if (closing || m.format !== FORMAT) throw new Error('protocol');
   if (m.op === 'start') {
     const plugins = m.plugins ?? [];
-    if (started || !exact(m, ['format', 'op', 'model', 'tools', 'plugins']) || typeof m.model !== 'string'
+    if (started || !exact(m, ['format', 'op', 'model', 'tools', 'plugins', 'max_turns']) || typeof m.model !== 'string'
       || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(m.model) || !Array.isArray(m.tools)
       || m.tools.some(tool => !['Read', 'Edit', 'Write', 'Bash', 'Glob', 'Grep'].includes(tool))
       || !Array.isArray(plugins) || plugins.length > 8 || new Set(plugins).size !== plugins.length
-      || plugins.some(path => typeof path !== 'string' || !/^\/opt\/kai\/addons\/[a-z0-9][a-z0-9-]{0,63}$/.test(path))) throw new Error('start');
+      || plugins.some(path => typeof path !== 'string' || !/^\/opt\/kai\/addons\/[a-z0-9][a-z0-9-]{0,63}$/.test(path))
+      // The SDK takes 0 as no limit at all: a limit is at least 1.
+      || (m.max_turns !== undefined && (!Number.isSafeInteger(m.max_turns) || m.max_turns < 1 || m.max_turns > 10000))) throw new Error('start');
     started = true;
     // Not bare: under --bare, Claude offers only Bash, Read and Edit. No
     // setting source either, so nothing of the tree configures Claude: its
@@ -89,6 +91,7 @@ async function command(m) {
       cwd: '/job/tree', model: m.model, tools: m.tools, allowedTools: m.tools,
       includePartialMessages: true, settingSources: [],
       plugins: plugins.map(path => ({ type: 'local', path })),
+      ...(m.max_turns === undefined ? {} : { maxTurns: m.max_turns }),
       extraArgs: { 'replay-user-messages': null },
       canUseTool: async () => ({ behavior: 'deny', message: 'Tool interaction is not enabled for this session.' }),
       env: { ...process.env }, stderr: () => {},

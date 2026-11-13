@@ -22,6 +22,8 @@ pub const MAX_FRAME: usize = 2 * 1024 * 1024;
 pub const MAX_PROMPT: usize = 64 * 1024;
 /// Tool names the profile can allow. These are not an isolation boundary.
 pub const TOOLS: &[&str] = &["Read", "Edit", "Write", "Bash", "Glob", "Grep"];
+/// The highest turn limit a session takes.
+pub const MAX_TURNS: u32 = 10_000;
 
 /// Why a session could not start or continue. Payloads and credentials are not echoed.
 #[derive(Debug, thiserror::Error)]
@@ -119,6 +121,10 @@ pub struct Options {
     pub timeout_s: u64,
     /// Tool allowlist, drawn from [`TOOLS`]. Empty disables tools.
     pub tools: Vec<String>,
+    /// The most model requests Claude makes for one turn, 1 to
+    /// [`MAX_TURNS`]; `None` is no limit but the VM's time. A turn that
+    /// reaches it ends with the outcome `limit`.
+    pub max_turns: Option<u32>,
     /// Add-ons, as [`crate::addon::cached`] found them: each layer is
     /// mounted above the runtime and its directory given to Claude as a
     /// local plugin. At most eight, each name once.
@@ -144,6 +150,7 @@ impl Options {
             memory_mib: 4096,
             timeout_s: 600,
             tools: TOOLS.iter().map(|s| (*s).into()).collect(),
+            max_turns: None,
             addons: vec![],
             activation: None,
             run_dir,
@@ -165,6 +172,13 @@ impl Options {
         }
         if self.timeout_s == 0 {
             return Err(Error::Invalid("timeout must be positive"));
+        }
+        // The SDK takes 0 as no limit at all, not as none allowed.
+        if self
+            .max_turns
+            .is_some_and(|turns| !(1..=MAX_TURNS).contains(&turns))
+        {
+            return Err(Error::Invalid("a turn limit is 1 to 10000"));
         }
         let mut names = std::collections::BTreeSet::new();
         if self.addons.len() > 8
@@ -226,7 +240,8 @@ pub struct Event {
 pub struct Turn {
     /// Correlated request id.
     pub id: u64,
-    /// answered, interrupted or agent-error.
+    /// answered, limit (the turn reached [`Options::max_turns`]),
+    /// interrupted or agent-error.
     pub outcome: String,
     /// Digest of the submitted prompt; not its text.
     pub prompt_sha256: String,
@@ -595,8 +610,13 @@ impl Session {
                     // says: an interrupt cannot take back a finished answer.
                     let succeeded =
                         event.payload["subtype"] == "success" && event.payload["is_error"] == false;
+                    // The SDK's own word for a turn that reached max_turns;
+                    // neither Claude's work nor kai's infrastructure.
+                    let limited = event.payload["subtype"] == "error_max_turns";
                     let outcome = if succeeded {
                         "answered"
+                    } else if limited {
+                        "limit"
                     } else if interrupted {
                         "interrupted"
                     } else {
@@ -701,6 +721,9 @@ impl Session {
                 .map(|addon| addon.info.dir.clone())
                 .collect();
         }
+        if let Some(turns) = self.options.max_turns {
+            start["max_turns"] = turns.into();
+        }
         self.command(start).await?;
         let ready = self.receive().await?;
         if ready.kind != "ready"
@@ -734,7 +757,7 @@ fn write_record(
         options.addons.iter().map(|addon| &addon.info).collect();
     let json = json!({"format":"kai-agent-run/1", "agent":"claude-code", "version":runtime::CLAUDE.version,
         "sdk":runtime::SDK_VERSION,"node":runtime::NODE_VERSION,"layer":layer,"model":options.model,
-        "tools":options.tools,"addons":addons,"activation":options.activation,
+        "tools":options.tools,"max_turns":options.max_turns,"addons":addons,"activation":options.activation,
         "mock":options.route.mock,"route_port":options.route.port,
         "session_id":record.session_id,"turns":record.turns,"cancelled_turn":record.cancelled_turn,
         "vm":record.vm,"outcome":record.outcome,"reason":record.reason });
@@ -1362,6 +1385,74 @@ mod tests {
             saved["reason"],
             "session protocol failed: runtime version mismatch"
         );
+    }
+    /// The start command the handshake sends, read on the guest's side.
+    async fn start_command(session: &mut Session, peer: &mut UnixStream) -> Value {
+        use tokio::io::AsyncBufReadExt as _;
+        session.seq = 0;
+        let mut ready = json!({"format":runtime::FORMAT,"seq":1,"kind":"ready","payload":{
+            "sdk":runtime::SDK_VERSION,"claude":runtime::CLAUDE.version,"node":runtime::NODE_VERSION}})
+        .to_string();
+        ready.push('\n');
+        peer.write_all(ready.as_bytes()).await.unwrap();
+        session.handshake().await.unwrap();
+        let mut line = String::new();
+        tokio::io::BufReader::new(peer)
+            .read_line(&mut line)
+            .await
+            .unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+    #[tokio::test]
+    async fn a_turn_limit_goes_into_start_only_when_given() {
+        let (mut session, mut peer) = fixture();
+        let start = start_command(&mut session, &mut peer).await;
+        assert!(start.get("max_turns").is_none() && start.get("plugins").is_none());
+        let (mut session, mut peer) = fixture();
+        session.options.max_turns = Some(3);
+        let start = start_command(&mut session, &mut peer).await;
+        assert_eq!(start["max_turns"], 3);
+    }
+    #[test]
+    fn a_turn_limit_is_one_or_more() {
+        let options = |max_turns| {
+            let route = Route::new("http://localhost:1", None, true).unwrap();
+            let mut options = Options::new("fixture".into(), route, "/fixture".into());
+            options.max_turns = max_turns;
+            options
+        };
+        // The SDK takes 0 as no limit at all.
+        assert!(options(Some(0)).validate().is_err());
+        assert!(options(Some(MAX_TURNS + 1)).validate().is_err());
+        for fine in [None, Some(1), Some(40), Some(MAX_TURNS)] {
+            assert!(options(fine).validate().is_ok(), "{fine:?}");
+        }
+    }
+    #[tokio::test]
+    async fn a_turn_that_reaches_the_limit_is_its_own_outcome() {
+        let (mut session, mut peer) = fixture();
+        session.options.max_turns = Some(1);
+        session.send("fixture").await.unwrap();
+        // As Claude Code 2.1.323 ends a turn at its limit.
+        event(
+            &mut peer,
+            2,
+            "result",
+            json!({"subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns",
+                "errors":["Reached maximum number of turns (1)"],"num_turns":2,"interrupted":false}),
+        )
+        .await;
+        session.next_event().await.unwrap();
+        assert_eq!(session.turns()[0].outcome, "limit");
+        // The session goes on: the limit holds per turn.
+        assert_eq!(session.send("next").await.unwrap(), 2);
+        session.record("closed", None).unwrap();
+        let saved = saved_record(&session);
+        assert_eq!(saved["max_turns"], 1);
+        assert_eq!(saved["turns"][0]["outcome"], "limit");
+        let (mut session, _peer) = fixture();
+        session.record("closed", None).unwrap();
+        assert_eq!(saved_record(&session)["max_turns"], Value::Null);
     }
     #[tokio::test]
     async fn the_run_record_is_the_documented_example() {

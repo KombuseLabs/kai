@@ -14,6 +14,7 @@ ended.
 | agent, version, sdk, node | Exact runtime versions |
 | layer | The runtime layer's record, [kai-agent-layer/1](kai-agent-layer-1.md), as validated before the VM started |
 | model, tools | Explicitly selected model and the tools asked for; Claude may offer fewer (a turn's `tools_offered`) |
+| max_turns | The most model requests Claude was allowed for one turn, 1 or more, or null when no limit was given (then only the VM's time limit bounded a turn); never 0 |
 | addons | The add-ons installed: each one's record, [kai-addon-layer/1](kai-addon-layer-1.md), as validated before the VM started. Its layer was mounted and its directory given to Claude as a local plugin. Empty without add-ons |
 | activation | The slash command and its arguments put on a line of their own before the first turn's text, such as `/ponytail full`, or null |
 | mock, route_port | Fake mode and loopback port; never the credential |
@@ -24,10 +25,18 @@ ended.
 | cancelled_turn | Outstanding turn id at closure, or null |
 | vm | VM run record when obtained; null if unavailable |
 
-A turn is `answered` only for a successful SDK result, `interrupted` only
-for an actual interrupted result following the host request, otherwise
-`agent-error`. A closed session can contain failed turns. A timeout or
-transport failure is infrastructure failure and never an answer.
+A turn is `answered` only for a successful SDK result, `limit` for a
+result whose `subtype` is `error_max_turns` (the turn reached `max_turns`),
+`interrupted` only for an actual interrupted result following the host
+request, otherwise `agent-error`. A closed session can contain failed
+turns. A timeout or transport failure is infrastructure failure and never
+an answer.
+
+`limit` is neither Claude's work nor infrastructure: the turn was stopped
+by an execution input. The tool call of the last request Claude was
+allowed still ran, but its result never reached the model, so a turn at
+its limit may have changed the tree. A reader that grades the tree must
+not count it as an answer without saying so.
 
 A turn's `tools_offered` lists the tools Claude offered the model in that
 turn, as the turn's `system` `init` event names them, or is null when the

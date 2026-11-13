@@ -58,6 +58,9 @@ struct SessionArgs {
     /// Comma-separated tool allowlist; an empty string disables tools
     #[arg(long, default_value = "Read,Edit,Write,Bash,Glob,Grep")]
     tools: String,
+    /// The most model requests Claude makes for one turn, from 1; a turn that reaches it ends with the outcome `limit`. Without it, only the VM's time limit bounds a turn
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=i64::from(::agent::session::MAX_TURNS)))]
+    max_turns: Option<u32>,
     /// Run directory, absent or empty
     #[arg(long)]
     run_dir: Option<PathBuf>,
@@ -140,6 +143,7 @@ pub(crate) fn dispatch(args: &AgentArgs, context: &Context<'_>) -> Result<(), Fa
         session_args.tools.split(',').map(str::to_owned).collect()
     };
     options.activation = session_args.activation.clone();
+    options.max_turns = session_args.max_turns;
     let passed = context.runtime.block_on(async {
         for name in &session_args.addons {
             let addon = ::agent::addon::named(name).expect("clap admits only known add-ons");
@@ -223,6 +227,11 @@ async fn execute(
         if !activated {
             eprintln!(
                 "kai: Claude did not take the activation's slash command; agent.json records the commands it took"
+            );
+        }
+        if turn.is_some_and(|turn| turn.outcome == "limit") {
+            eprintln!(
+                "kai: the turn reached its limit of model requests; its last tool call may have changed the tree"
             );
         }
         passed = activated && turn.is_some_and(|turn| turn.outcome == "answered");

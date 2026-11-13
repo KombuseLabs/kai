@@ -663,3 +663,32 @@ async fn an_addon_reaches_the_model_only_where_it_was_invoked() {
     assert_eq!(fresh.outcome, "answered");
     assert!(carries(&bodies, &task) && !carries(&bodies, &marker));
 }
+
+#[tokio::test]
+#[ignore = "requires KVM, a fetched runtime, explicit cache and local mimic"]
+async fn a_turn_that_never_ends_stops_at_its_limit_and_the_session_goes_on() {
+    // Every request is answered with a tool call: without a limit, only
+    // the VM's time would end the turn.
+    let fixture = Fixture::answering(&[r#"tool:Bash:{"command":"true"}"#]).await;
+    let mut session = fixture
+        .session_with(|options| {
+            options.timeout_s = 60;
+            options.tools = vec!["Bash".into()];
+            options.max_turns = Some(2);
+        })
+        .await;
+    let (results, first) = one_turn(&mut session, "fixture: loop").await;
+    assert_eq!(first.outcome, "limit");
+    assert_eq!(first.result["subtype"], "error_max_turns");
+    // The second request's tool call ran too; its result went nowhere.
+    assert_eq!(results.len(), 2);
+    assert_eq!(fixture.ledger().len(), 2);
+    let (_, second) = one_turn(&mut session, "fixture: loop again").await;
+    assert_eq!(second.outcome, "limit");
+    assert_eq!(fixture.ledger().len(), 4);
+    session.close().await.unwrap();
+    let saved = record(&fixture.run_dir());
+    assert_eq!(saved["max_turns"], 2);
+    assert_eq!(saved["turns"][1]["outcome"], "limit");
+    fixture.stop().await;
+}

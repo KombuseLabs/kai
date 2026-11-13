@@ -8,7 +8,7 @@ Each command has `format: "kai-agent-session/1"` and `op`:
 
 | op | Fields | Meaning |
 | --- | --- | --- |
-| start | model, tools; plugins | Configure one SDK session; sent once by the host. `plugins` may be absent |
+| start | model, tools; plugins, max_turns | Configure one SDK session; sent once by the host. `plugins` and `max_turns` may be absent |
 | send | turn, text | Monotonic turn id starting at 1, text at most 64 KiB |
 | interrupt | turn | Request interruption of the active turn |
 | close | none | Stop the SDK subprocess and end the guest |
@@ -21,6 +21,15 @@ source. Absent, the session has none, as before the field existed.
 Claude replays every user message it takes, as an `event` whose SDK
 message has `isReplay`; a message that ran a slash command names it in a
 `<command-name>` tag, which the host reads.
+
+`max_turns`, when present, is an integer from 1 to 10000: the most model
+requests Claude makes for one turn (the SDK's `maxTurns`). Absent, only the
+VM's time limit bounds a turn; the SDK would take 0 as no limit, so 0 is
+refused. The limit holds per turn, not per session. A turn that reaches it
+ends with a result whose `subtype` is `error_max_turns` (`terminal_reason`
+`max_turns`, no `result` text), and the next turn is taken as usual. The
+tool call of the last request Claude was allowed still runs, but its result
+never reaches the model: a turn at its limit may have changed the tree.
 
 The model is explicit. The tool list contains only Read, Edit, Write, Bash,
 Glob and Grep; an empty list disables tools. Claude may offer the model
@@ -76,7 +85,8 @@ the frame limit, 2 MiB; a longer one, or one cut off by the end of the
 input, closes the session as `close` would. `kai agent session` exits 0
 when the session closed and its VM ended cleanly, whatever its turns'
 outcomes, which the result events and agent.json give; `kai agent run`
-exits 0 only for an answered turn. Both take `--addon <name>` for each
+exits 0 only for an answered turn, never for one at its limit. Both take
+`--max-turns <n>`, which goes into `max_turns`, and `--addon <name>` for each
 add-on, whose `dir` goes into `plugins`, and `--activation`, which the
 host puts on a line of its own before the first turn's text; the `send`
 command carries the text as sent. `kai agent run` with an activation

@@ -170,7 +170,10 @@ session; Ctrl-C or SIGTERM drops it and stops the VM. `agent session`
 exits 0 when the session closed and its VM ended cleanly, whatever the
 turns' outcomes; `agent run` exits 0 only for an answered turn. Sessions
 continue within one live VM; resuming after a process or VM restart is
-not implemented.
+not implemented. `--max-turns <n>` bounds the model requests of each turn;
+a turn that reaches it ends with the outcome `limit`, and its last tool
+call may still have changed the tree. Without it, only the VM's time
+limit (`--timeout`) bounds a turn.
 
 Both commands require `ANTHROPIC_BASE_URL` naming an explicit loopback HTTP
 port. Normal mode accepts only a proxy-issued placeholder of the supported
