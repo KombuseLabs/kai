@@ -50,5 +50,9 @@ types = { path = "../types" }
 # `kai vm`: doctor, fetch, images and runs.
 vm = { path = "../vm" }
 
+[dev-dependencies]
+# A test's own directory, removed when the test ends (helpers::testing).
+helpers = { path = "../helpers", features = ["test-support"] }
+
 [lints]
 workspace = true

@@ -234,11 +234,8 @@ pub fn sync_dir(path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn dir(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("helpers-fs-{}-{test}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn dir(test: &str) -> crate::testing::TestDir {
+        crate::testing::TestDir::new(&format!("helpers-fs-{test}"))
     }
 
     fn names(dir: &Path) -> Vec<String> {

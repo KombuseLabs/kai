@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use agent::Agent;
 use agent::layer::{AGENTS_DIR, Fetched, INFO_FILE, LAYER_FILE, Step, fetch, fetch_with};
 use helpers::hash::sha256_bytes;
+use helpers::testing::TestDir;
 use serde::{Deserialize, Serialize};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -48,11 +49,8 @@ struct ChildJob {
 const CHILD_JOB: &str = "KAI_AGENT_LAYER_CHILD_JOB";
 
 /// A fresh directory of the test's own.
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-agent-abort-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("agent-abort-{test}"))
 }
 
 fn leak(text: String) -> &'static str {

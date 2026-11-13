@@ -155,7 +155,7 @@ mod tests {
         let tree = dir("small-tree");
         std::fs::write(tree.join("big"), vec![1u8; 3 << 20]).unwrap();
         let mut spec = spec();
-        spec.tree = Some(tree.clone());
+        spec.tree = Some(tree.to_path_buf());
         spec.disk_mib = Some(8);
         let err = check(&spec).unwrap_err().to_string();
         assert!(err.contains("--disk"), "{err}");
@@ -167,10 +167,10 @@ mod tests {
     fn targets_that_exist_and_missing_layers_are_refused() {
         let base = dir("targets");
         let mut spec = spec();
-        spec.tree_out = Some(base.clone());
+        spec.tree_out = Some(base.to_path_buf());
         assert!(check(&spec).unwrap_err().to_string().contains("--tree-out"));
         spec.tree_out = None;
-        spec.upper_out = Some(base.clone());
+        spec.upper_out = Some(base.to_path_buf());
         assert!(
             check(&spec)
                 .unwrap_err()

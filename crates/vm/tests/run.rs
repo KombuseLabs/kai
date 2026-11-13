@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use helpers::testing::TestDir;
 use vm::{JobFile, Launch, Outcome, Port, PortTarget, RunResult, RunSpec};
 
 /// The test program, built for musl by the build script.
@@ -26,11 +27,8 @@ fn cache() -> PathBuf {
     }
 }
 
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-run-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("vm-run-{test}"))
 }
 
 /// A squashfs image holding `/probe`, `/etc/motd` and `/data/a` and `b`.

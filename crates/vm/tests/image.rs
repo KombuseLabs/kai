@@ -4,14 +4,12 @@
 
 use std::path::PathBuf;
 
+use helpers::testing::TestDir;
 use vm::Error;
 use vm::image::{IMAGE_FORMAT, ImageInfo, RECIPES, image_id, recipe, resolve};
 
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-image-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("vm-image-{test}"))
 }
 
 /// Puts a made-up image of `recipe` into `cache`: a file and its JSON.

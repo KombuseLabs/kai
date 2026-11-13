@@ -8,17 +8,15 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use engine::deps::{self, Error, Layers, RUST, Request};
+use helpers::testing::TestDir;
 use types::RepoName;
 use vm::Launch;
 use vm::image::ImageInfo;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-deps-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("engine-deps-{test}"))
 }
 
 fn script(path: &Path, text: &str) {

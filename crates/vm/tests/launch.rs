@@ -3,16 +3,14 @@
 //! `kai vm fetch`. Needs `cp` and e2fsprogs, as every run does.
 
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use helpers::testing::TestDir;
 use vm::{Launch, Outcome, RunSpec};
 
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-launch-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("vm-launch-{test}"))
 }
 
 /// A launch whose Firecracker is the shell script `script`, which runs in

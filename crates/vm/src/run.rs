@@ -213,11 +213,8 @@ mod tests {
     }
 
     /// An empty directory of its own for the test `test`.
-    pub(super) fn dir(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kai-vm-run-{}-{test}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    pub(super) fn dir(test: &str) -> helpers::testing::TestDir {
+        helpers::testing::TestDir::new(&format!("vm-run-{test}"))
     }
 
     #[test]

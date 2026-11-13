@@ -2,16 +2,14 @@
 //! `kai vm` keeps its cache, run as a program. No network and no VM:
 //! nothing here fetches, and the runs that boot are crates/vm's tests.
 
-use std::path::{Path, PathBuf};
+use helpers::testing::TestDir;
+use std::path::Path;
 use std::process::{Command, Output};
 
 /// A fresh directory of the test's own, outside the repository so that no
 /// `.env` or `kai.toml` above it is found.
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("cli-vm-{test}"))
 }
 
 /// Runs kai in `dir` with `args` and none of kai's variables from the

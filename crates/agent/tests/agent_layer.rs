@@ -5,20 +5,18 @@
 //! `cargo test -p agent --test agent_layer -- --ignored`.
 
 use std::os::unix::fs::MetadataExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use agent::Agent;
 use agent::layer::{AGENTS_DIR, Error, INFO_FILE, LAYER_FILE, LayerInfo, fetch};
 use helpers::hash::sha256_bytes;
+use helpers::testing::TestDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A fresh directory of the test's own.
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-agent-layer-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("agent-layer-{test}"))
 }
 
 /// Pins are `&'static str`, as in the tracked pins.

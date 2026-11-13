@@ -23,6 +23,8 @@ tracing.workspace = true
 vm = { path = "../vm" }
 
 [dev-dependencies]
+# A test's own directory, removed when the test ends (helpers::testing).
+helpers = { path = "../helpers", features = ["test-support"] }
 # Async tests and bounded waits for child-process recovery tests.
 tokio = { version = "1.54.1", features = ["macros", "rt", "time"] }
 # A local server for invented release artefacts; no provider or internet calls.

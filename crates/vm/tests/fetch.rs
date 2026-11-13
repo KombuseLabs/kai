@@ -3,21 +3,19 @@
 //! invented; their pins are computed here.
 
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use helpers::hash::sha256_file;
+use helpers::testing::TestDir;
 use vm::{Artefact, Error, Fetched, fetch};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A fresh directory of the test's own.
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-fetch-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("vm-fetch-{test}"))
 }
 
 /// Pins are `&'static str`, as in the tracked pins; a test's live as long

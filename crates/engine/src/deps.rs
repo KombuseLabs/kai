@@ -541,8 +541,7 @@ mod tests {
     /// a launch whose files are not there does not matter.
     #[tokio::test]
     async fn two_cached_layers_start_no_vm() {
-        let cache = std::env::temp_dir().join(format!("kai-deps-{}-cached", std::process::id()));
-        let _ = std::fs::remove_dir_all(&cache);
+        let cache = helpers::testing::TestDir::new("deps-cached");
         std::fs::create_dir_all(cache.join("layers")).unwrap();
         let repo: RepoName = "example-org/example-code".parse().unwrap();
         let info = info();

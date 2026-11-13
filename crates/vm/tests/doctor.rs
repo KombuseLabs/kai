@@ -2,17 +2,13 @@
 //! programs) differs between machines, so only the artefacts' checks are
 //! asserted.
 
-use std::path::PathBuf;
-
 use helpers::hash::sha256_file;
+use helpers::testing::TestDir;
 use vm::doctor::{self, Check};
 use vm::{ARTEFACTS, Artefact};
 
-fn dir(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kai-vm-doctor-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn dir(test: &str) -> TestDir {
+    TestDir::new(&format!("vm-doctor-{test}"))
 }
 
 fn invented(sha256: &'static str) -> Artefact {
