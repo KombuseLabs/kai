@@ -1,0 +1,38 @@
+{
+  "data": {
+    "repository": {
+      "issues": {
+        "pageInfo": { "hasNextPage": true, "endCursor": "Y3Vyc29yOmludmVudGVk" },
+        "nodes": [
+          {
+            "number": 1,
+            "title": "Invented: a question, not a ticket",
+            "url": "https://github.com/example-org/example-board/issues/1",
+            "state": "OPEN",
+            "body": "How are the widgets counted?",
+            "updatedAt": "2026-01-02T10:00:00Z",
+            "labels": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+            "timelineItems": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+          },
+          {
+            "number": 2,
+            "title": "Invented: count the widgets",
+            "url": "https://github.com/example-org/example-board/issues/2",
+            "state": "OPEN",
+            "body": "### Instruction\n\nMake `widgets --count` print how many widgets there are.\n\n### Repo\n\nexample-org/example-code\n\n### Ref\n\n0123456789abcdef0123456789abcdef01234567\n\n### Check\n\n_No response_\n\n### Hidden tests\n\ntests/hidden/count.rs",
+            "updatedAt": "2026-01-03T10:00:00Z",
+            "labels": { "pageInfo": { "hasNextPage": false }, "nodes": [{ "name": "kai" }, { "name": "bug" }] },
+            "timelineItems": {
+              "pageInfo": { "hasNextPage": false },
+              "nodes": [
+                { "createdAt": "2026-01-03T09:00:00Z", "actor": { "login": "example-maintainer" }, "label": { "name": "kai" } },
+                { "createdAt": "2026-01-03T09:30:00Z", "actor": null, "label": { "name": "bug" } }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "rateLimit": { "cost": 1, "remaining": 4999, "resetAt": "2026-01-03T11:00:00Z" }
+  }
+}

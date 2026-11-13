@@ -14,6 +14,7 @@ and further crates kai consists of is not decided.
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library: today the static qualify rules; never depends on `cli` |
 | `crates/store/` | a throwaway SQLite cache of the tickets; emptied when its schema changes, no migrations |
+| `crates/github/` | GitHub issues into tickets, one way, never writing; async, on reqwest |
 | `crates/helpers/` | infrastructure the other crates share, nothing about what kai does: `logging`, and `config`, which finds and reads settings files |
 | `kai.toml` | kai's settings when it runs in this repository; shows every key kai knows |
 | `docs/` | how parts of kai work, with diagrams (Mermaid, which GitHub renders); `qualify.md` |
@@ -32,6 +33,9 @@ and further crates kai consists of is not decided.
   clippy refuses `println!`, `eprintln!` and `dbg!` outside `cli`.
   A log line is a diagnostic, not a record: nothing a run found may exist
   only in a log, since a full queue drops lines.
+- **Async.** kai is async, on tokio: what waits on the network or on a VM
+  is an `async fn`. As with logging, only a program's `main` starts the
+  runtime; a library crate never does.
 - **Docs.** Whatever a crate makes public has a doc comment (the
   `missing_docs` lint, an error in CI); an example in a doc comment is a
   test.

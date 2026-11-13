@@ -34,8 +34,18 @@ allow = [
     "MIT",
     # unicode-ident, for the Unicode data it carries.
     "Unicode-3.0",
+    # TLS to GitHub: ring, rustls-webpki and untrusted (through reqwest).
+    "ISC",
+    # subtle, constant-time comparisons in rustls (through reqwest).
+    "BSD-3-Clause",
     # foldhash, the hasher of hashbrown (through rusqlite).
     "Zlib",
+]
+# Mozilla's root certificates as data, under a data licence. Only
+# rustls-platform-verifier on wasm32 depends on it, which kai is never built
+# for; the graph above covers every platform, so it is listed.
+exceptions = [
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [bans]
