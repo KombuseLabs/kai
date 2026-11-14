@@ -2,7 +2,7 @@
 //!
 //! - `kai` greets.
 //! - `kai github sync` fetches a board's issues into the store, a SQLite
-//!   cache of GitHub. It never writes to GitHub.
+//!   cache owned by the external ticket mirror. It never writes to GitHub.
 //! - `kai ticket list` lists the tickets in the store.
 //! - `kai ticket qualify` says for each whether kai may use it, judged from
 //!   what GitHub said: qualified, refused, or undecided while a rule is not
@@ -34,9 +34,7 @@
 //! stand in it. A variable that is already set wins over the file. The file
 //! is for secrets and stays out of version control.
 //!
-//! The GitHub token: `KAI_GITHUB_TOKEN`, else what `gh auth token` prints.
-//! It is never an option, so that it stays out of the shell's history and
-//! the process list.
+//! GitHub credentials belong to the mirror service; kai never sends them.
 //!
 //! Exit status: 0; 1 when a command fails (GitHub, the store, a download,
 //! a need `kai vm doctor` finds unmet); 2 for a command line, a `.env` or a
@@ -84,9 +82,9 @@ struct Cli {
     #[arg(long, global = true, env = "KAI_LOG_FILE", value_name = "FILE")]
     log_file: Option<PathBuf>,
 
-    /// The store, a SQLite cache of the tickets; without it, store.path in kai.toml, else .kai/store.sqlite beside kai.toml or here
-    #[arg(long, global = true, env = "KAI_STORE", value_name = "FILE")]
-    store: Option<PathBuf>,
+    /// Ticket mirror HTTP base URL; without it, store.url in kai.toml, else http://127.0.0.1:4287
+    #[arg(long, global = true, env = "KAI_STORE", value_name = "URL")]
+    store: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -152,7 +150,7 @@ fn main() -> ExitCode {
         }
     };
     let context = Context {
-        store: settings::store_path(cli.store.as_deref(), config.as_ref()),
+        store: settings::store_url(cli.store.as_deref(), config.as_ref()),
         config: config.as_ref(),
         runtime: &runtime,
     };

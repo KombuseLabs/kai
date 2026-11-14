@@ -13,8 +13,6 @@ mod study;
 mod ticket;
 mod vm;
 
-use std::path::PathBuf;
-
 use clap::Subcommand;
 use helpers::config::Loaded;
 
@@ -48,8 +46,8 @@ pub(crate) enum Command {
 /// What every command may need: the global options, resolved against the
 /// settings file, and the async runtime.
 pub(crate) struct Context<'a> {
-    /// The store's file.
-    pub(crate) store: PathBuf,
+    /// The ticket mirror's HTTP base URL.
+    pub(crate) store: String,
     /// The settings file, if one was read.
     pub(crate) config: Option<&'a Loaded<Config>>,
     /// The runtime `main` started, on which a command runs what waits on

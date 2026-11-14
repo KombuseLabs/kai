@@ -211,7 +211,8 @@ whoever puts the label on again after a maintainer is the one judged.
 
 ## How kai uses it
 
-`kai github sync` fills the store with issues as GitHub said them; with
+`kai github sync` asks ticketz through hatch to fill its cache with
+issues as GitHub said them; with
 `--full` it also removes those GitHub no longer returns, and with
 `--actor-permissions` it asks GitHub what access each account that put a
 label on has to the board now, and keeps the answers: the data the trust
@@ -221,52 +222,36 @@ access to the board's contents for that, and where GitHub refuses, the
 sync says so and keeps the listing of before. `kai ticket qualify`
 reads the issues and what the store keeps of each board, looks in kai's
 VM cache for a fetch layer of each ticket's commit, makes each issue a
-ticket and judges it. Qualifying
-needs no network: it works on what the last sync fetched, and `kai store
-status` says when that was.
+ticket and judges it. Qualifying needs the local mirror service but no
+GitHub request: it works on the last sync, and `kai store status` says when
+that was.
 
 ```mermaid
-%% checked against crates/store, crates/github, crates/engine
-%% drawn from cli::cmd::github::sync#bcbe5b9d, cli::cmd::ticket::print_qualify#a66f8c6f
+%% checked against crates/store, crates/engine
+%% drawn from cli::cmd::github::sync#70b26430, cli::cmd::ticket::print_qualify#a66f8c6f
 sequenceDiagram
     actor You
     participant cli as kai (cli)
-    participant gh as github::Client
-    participant GitHub
     participant store as store::Store
+    participant service as hatch / ticketz
+    participant upstream as prxy / GitHub
     participant ticket as engine::ticket
     participant engine as engine::qualify
 
     You->>cli: kai github sync
-    cli->>store: cursor(board)
-    cli->>gh: fetch_board(board, since)
-    gh->>GitHub: GraphQL, 50 issues a page
-    GitHub-->>gh: issues, labels, labeled events
-    gh-->>cli: issues and the next cursor
-    cli->>store: record_sync(board, issues, cursor, full)
-    opt --actor-permissions
-        cli->>store: actors(board)
-        loop each account that put a label on
-            cli->>gh: access(board, login)
-            gh->>GitHub: REST, the collaborator's permission
-            gh-->>cli: Known, or Unknown with GitHub's words
-        end
-        cli->>store: record_access(board, answers)
-    end
-    cli->>gh: board_files(board)
-    gh->>GitHub: GraphQL, the default branch's head; REST, its tree
-    alt GitHub lists them
-        gh-->>cli: BoardFiles
-        cli->>store: record_board_files(board, files)
-    else GitHub refuses
-        Note over cli: says why; the listing of before stays
-    end
+    cli->>store: sync(board, full, actor_permissions)
+    store->>service: POST /ticketz/sync
+    service->>upstream: issues, optional actor permissions, board files
+    upstream-->>service: GitHub observations
+    Note over service: commit observations together, retain old files if listing fails
+    service-->>store: process envelope with ticketz-sync/1
+    store-->>cli: validated summary, including optional file-listing failure
 
     You->>cli: kai ticket qualify
-    cli->>store: issues()
-    store-->>cli: every issue
-    cli->>store: access(board) and board_files(board), once per board
-    store-->>cli: what GitHub said of the label actors and the files
+    cli->>store: snapshot()
+    store->>service: POST /ticketz/snapshot
+    service-->>store: process envelope with ticketz-snapshot/1
+    store-->>cli: issues, board access and files from one transaction
     loop each issue
         cli->>ticket: from_issue(issue)
         ticket-->>cli: Ticket, the body read as the form

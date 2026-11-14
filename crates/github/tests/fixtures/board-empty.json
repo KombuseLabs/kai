@@ -1,8 +1,0 @@
-{
-  "data": {
-    "repository": {
-      "issues": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] }
-    },
-    "rateLimit": { "cost": 1, "remaining": 4997, "resetAt": "2026-01-05T11:00:00Z" }
-  }
-}

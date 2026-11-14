@@ -261,32 +261,35 @@ impl Known {
 /// Every issue in the store, read as a ticket, and what kai knows beside
 /// them; a hint on standard error when there is no ticket.
 fn tickets(context: &Context<'_>) -> anyhow::Result<(Vec<Ticket>, Known)> {
-    let store_path = &context.store;
-    let store = super::store::open(store_path)?;
-    let tickets: Vec<Ticket> = store
-        .issues()
-        .context("cannot read the store")?
+    let store = super::store::open(&context.store)?;
+    let snapshot = context
+        .runtime
+        .block_on(store.snapshot())
+        .context("cannot read the store")?;
+    let tickets: Vec<Ticket> = snapshot
+        .issues
         .iter()
         .map(::engine::ticket::from_issue)
         .collect();
     if tickets.is_empty() {
         eprintln!(
             "kai: the store {} holds no tickets; `kai github sync` fetches them",
-            store_path.display()
+            context.store
         );
     }
-    let mut boards = BTreeMap::new();
-    for ticket in &tickets {
-        let board = &ticket.issue.repo;
-        if !boards.contains_key(board) {
-            let access = store.access(board).context("cannot read the store")?;
-            let files = store
-                .board_files(board)
-                .context("cannot read the store")?
-                .map(|listed| listed.files);
-            boards.insert(board.clone(), Board { access, files });
-        }
-    }
+    let boards = snapshot
+        .boards
+        .into_iter()
+        .map(|board| {
+            (
+                board.repo,
+                Board {
+                    access: board.access,
+                    files: board.files,
+                },
+            )
+        })
+        .collect();
     // Without a cache, no commit counts as fetched: at-ref stays not
     // checked, which is what it is.
     let named = std::env::var_os("KAI_VM_CACHE")

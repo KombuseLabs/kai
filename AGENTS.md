@@ -5,8 +5,8 @@ add-on, in two independent microVMs, parallel by default. It keeps both
 results separately and reports their tokens, recorded proxy costs and
 runtimes through eval-reporter and Bench Board. There is no grader or
 automatic winner. The repository also contains a separate ticket workflow:
-tickets come in from GitHub issues (`kai github sync`) into
-a local SQLite store, and `kai ticket qualify` says from what GitHub said
+tickets come in from GitHub issues (`kai github sync`) through
+the external ticketz mirror served by hatch, and `kai ticket qualify` says from what GitHub said
 whether kai may use each one. `kai vm run` runs one command in a fresh
 Firecracker microVM, and `kai ticket deps` fetches and builds a ticket's
 repository and dependencies in microVMs. `kai agent fetch` packs a pinned
@@ -40,8 +40,7 @@ environment variables still take precedence; mock mode never uses the file.
 | `crates/types/` | the domain types (`Ticket`, `Qualification`); data only, depends on nothing of kai's |
 | `crates/engine/` | what kai does, as a library: an issue read as a ticket, its body as the kai ticket form (`ticket`); the qualify rules over a ticket and what kai knows beside it (`Facts`); `deps`, a ticket's repository and dependencies fetched and built in microVMs as two layers; never depends on `cli` |
 | `crates/agent/` | pinned agent runtimes and interactive sessions; `runtime` pins Claude/SDK/Node, `addon` pins add-ons (Ponytail's skill), `layer` checks, publishes and recovers the cache of both, `session` owns the host protocol, `wrapper.mjs` is its guest peer; depends on `vm` and `helpers`, never on `engine` or `cli` |
-| `crates/store/` | the store: a SQLite mirror of the issues kai fetched, as GitHub said them (the body kept whole), and where and when each board's last sync stopped; only a full sync removes what GitHub no longer returns; the access of each label actor as GitHub told it, the trust gate's data; and the board's files, where the hidden tests lie |
-| `crates/github/` | a board's GitHub issues as GitHub said them, one way, never writing; async, on reqwest |
+| `crates/store/` | HTTP client for ticketz through hatch: sync/reset requests and one consistent snapshot of issues, actor access and board files; versioned JSON contracts, no database access or GitHub credentials |
 | `crates/proxy/` | a run's way out of its microVM (`Egress`): starts `fence proxy` on the socket the launcher's port ends at, ends it after the run, and counts its ledger; `src/bin/fence-stand-in.rs` stands in for fence in the tests |
 | `crates/vm/` | microVMs on Firecracker: one command in a fresh VM (`kai vm run`; a tree, layers, ports, a way out through `proxy`'s egress), images from the recipes in `images/` (`kai vm image`), the pinned Firecracker and guest kernel (`kai vm fetch`), what a run needs (`kai vm doctor`); `src/run.rs` is a run step by step, `src/run/` its parts; the build script builds `guest` for musl and puts the init into kai |
 | `crates/guest/` | kai's init, PID 1 of every VM (`kai-init`, static, musl), and `job.json` and `status.json`, which it shares with `vm`; the example `probe` is the VM tests' program |

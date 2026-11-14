@@ -201,28 +201,32 @@ there is no grader or winner. Old results without `pair.json` are not imported.
 
 A ticket is an issue on a board repository, made with an issue form whose
 fields are Instruction, Repo, Ref (a full commit sha), Check and Hidden
-tests, and labelled `kai`. `kai github sync` reads the board's issues
-changed since the last sync into the store, `.kai/store.sqlite` beside
-`kai.toml` (`--store` names another); `--full` reads all of them and
-removes those GitHub no longer returns. `--actor-permissions` also asks
-GitHub what access each account that put a label on has to the board now,
-one request per account, and keeps the answer, or GitHub's words when it
-does not tell; `kai store status` shows them, and the rule `trust-gate`
-judges by them. Every sync also lists the board's files at the head of
-its default branch: a ticket's hidden tests lie there, in the board, never
-in the code repository the agent works in. Listing them needs read
-access to the board's contents; where the token has none, the sync says so
-and the rest of it stands. It never writes to GitHub. The
-token is `KAI_GITHUB_TOKEN`, else what `gh auth token` prints; a read-only
-token is enough: for a fine-grained one, read access to the board's
-issues, metadata and contents.
+tests, and labelled `kai`. `kai github sync` asks the external ticketz
+mirror, served by hatch, to fetch changes from GitHub. `--full` replaces
+all issues of the selected board; `--actor-permissions` refreshes the
+access of accounts that applied labels. Every sync also attempts to list
+the board's files at its default branch's current commit. A refused file
+listing is reported; issues and other observations remain usable.
 
-The store keeps the issues as GitHub said them, body and all, and kai
-reads each body as the form when it uses the ticket, so a change to how
-the form is read needs no sync. A store kai makes, and the directory it
-makes for it, are readable by their owner only: they hold the issues'
-text. A sync fetches at most 100 labels and 100 labeled events of an
-issue, and the store records whether that was all of them.
+The service must already be running (ticketz 0.2 or newer). kai connects
+to `http://127.0.0.1:4287` by default; `--store URL`, `KAI_STORE`, or
+`[store] url` selects another hatch base URL. The service owns its cache
+and GitHub credentials. Its sync can run through prxy; kai sends only the
+repository and sync options. A read-only GitHub token needs issues,
+metadata and contents access. See the [HTTP contract](contracts/ticketz.md)
+for service setup and response handling.
+
+`kai store status` shows cached boards and actor permissions.
+`kai store reset` empties the service's cache, including boards used by
+other clients of that same service. The old `.kai/store.sqlite` is left
+untouched and is no longer read. Replace the former `[store] path` setting
+with `url`; move any former `[github] api` setting to the service.
+
+The mirror keeps original issue bodies. kai reads each body as its form
+when it uses the ticket, so parser changes need no sync. Qualifying reads
+issues, actor access and board files in one HTTP snapshot, with no GitHub
+request. Labels and labeled events are limited to the first 100 per
+issue; completeness flags keep a partial observation from looking complete.
 
 `kai ticket qualify` judges each ticket from what GitHub said: refused when
 a rule fails (no `kai` label, the label put on last by an account
@@ -416,7 +420,7 @@ know is an error. [kai.toml](kai.toml) in this repository shows every key.
 
 kai needs Rust (`rust-toolchain.toml` names the version and the target
 x86_64-unknown-linux-musl, for kai's guest init; rustup installs both) and
-a C compiler: SQLite is compiled into kai. Without the musl target kai is
+a C compiler for native dependencies. Without the musl target kai is
 built without its init, and `kai vm doctor` says so.
 
 ## Scope and remaining limits

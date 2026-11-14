@@ -1,12 +1,13 @@
 //! `kai ticket list`, `kai ticket qualify`, `kai github sync` and the
 //! usage of `kai agent fetch --addon`, run as a program, the first three
-//! on a store of invented tickets. No network: the sync tests fail
+//! against an HTTP stand-in serving invented tickets. Only loopback: sync tests fail
 //! before a request, or at a port on this machine that nothing listens on.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use store::Store;
+mod support;
+use support::Store;
 use types::{Access, BoardFiles, Issue, IssueId, IssueState, LabelEvent};
 
 /// A fresh directory of the test's own, outside the repository so that no
@@ -28,6 +29,8 @@ fn kai(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
             command.env_remove(name);
         }
     }
+    let service = support::Server::start(dir);
+    command.env("KAI_STORE", &service.url);
     command.envs(env.iter().copied());
     command.output().unwrap()
 }
@@ -70,7 +73,7 @@ fn issue(number: u64, labels: &[&str], instruction: &str) -> Issue {
 /// without the label, one that may be used once the gate is built, and one
 /// whose instruction holds a code block.
 fn store_with_tickets(dir: &Path) {
-    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let mut store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     let issues = [
         issue(1, &[], "Count the widgets."),
         issue(2, &["kai"], "Count the widgets."),
@@ -129,7 +132,7 @@ fn qualify_qualifies_a_ticket_once_everything_is_known() {
         actor: Some("example-maintainer".to_owned()),
         at: "2026-01-02T03:00:00Z".to_owned(),
     }];
-    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let mut store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     store.record_sync(&board, &[issue], None, false).unwrap();
     store
         .record_access(
@@ -185,7 +188,7 @@ fn qualify_qualifies_a_ticket_once_everything_is_known() {
     );
 
     // The hidden tests gone from the board refuse it.
-    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let mut store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     store
         .record_board_files(&board, &files(&["README.md"]))
         .unwrap();
@@ -213,7 +216,7 @@ fn qualify_judges_the_trust_gate_by_the_access_the_store_keeps() {
         }];
         issue
     };
-    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let mut store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     store
         .record_sync(
             &board,
@@ -275,7 +278,7 @@ fn store_reset_empties_the_store() {
         "{}",
         stdout(&output)
     );
-    let store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     assert!(store.issues().unwrap().is_empty());
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -286,7 +289,7 @@ fn store_status_says_per_board_when_it_was_synced() {
     let output = kai(&dir, &["store", "status"], &[]);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
-        stdout(&output).contains("no store here"),
+        stdout(&output).contains("no board synced yet"),
         "{}",
         stdout(&output)
     );
@@ -309,7 +312,7 @@ fn store_status_shows_each_label_actors_access_as_github_told_it() {
     let dir = dir("status-access");
     store_with_tickets(&dir);
     let board = "example-org/example-board".parse().unwrap();
-    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let mut store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     store
         .record_access(
             &board,
@@ -352,7 +355,7 @@ fn store_reset_without_a_store_makes_none() {
     let output = kai(&dir, &["store", "reset"], &[]);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
-        stdout(&output).contains("no store here"),
+        stdout(&output).contains("0 issues removed"),
         "{}",
         stdout(&output)
     );
@@ -370,7 +373,7 @@ fn store_reset_leaves_a_file_that_is_not_kais_store_alone() {
     let output = kai(&dir, &["store", "reset", "--store", "other.sqlite"], &[]);
     assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
     assert!(
-        stderr(&output).contains("cannot open the store"),
+        stderr(&output).contains("cannot connect to the store"),
         "{}",
         stderr(&output)
     );
@@ -413,16 +416,17 @@ fn a_board_in_kai_toml_that_is_not_owner_slash_name_is_a_usage_error() {
 }
 
 #[test]
-fn sync_that_cannot_reach_github_fails_and_leaves_the_store_as_it_was() {
+fn sync_that_cannot_reach_the_service_fails_and_leaves_the_store_as_it_was() {
     let dir = dir("unreachable");
     store_with_tickets(&dir);
     // Port 9 (discard) on this machine: nothing listens, nothing leaves it.
     std::fs::write(
         dir.join("kai.toml"),
-        "[github]\napi = \"http://127.0.0.1:9\"\n",
+        "[store]\nurl = \"http://127.0.0.1:9\"\n",
     )
     .unwrap();
     let env = [
+        ("KAI_STORE", "http://127.0.0.1:9"),
         ("KAI_GITHUB_TOKEN", "invented-token-0123456789"),
         ("KAI_GITHUB_BOARD", "example-org/example-board"),
     ];
@@ -434,7 +438,7 @@ fn sync_that_cannot_reach_github_fails_and_leaves_the_store_as_it_was() {
         "{err}"
     );
     assert!(!err.contains("invented-token"), "{err}");
-    let store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    let store = Store::open(&dir.join(".kai/ticketz-fixture.json")).unwrap();
     assert_eq!(store.issues().unwrap().len(), 3);
     std::fs::remove_dir_all(dir).unwrap();
 }

@@ -1,76 +1,58 @@
-//! `kai store`: the store itself, kai's mirror of the issues it fetched.
-
-use std::path::Path;
-
+//! Commands for the external ticket mirror.
+use super::{Context, Failure};
 use anyhow::Context as _;
 use clap::Subcommand;
 
-use super::{Context, Failure};
-
 #[derive(Subcommand)]
 pub(crate) enum StoreCommand {
-    /// Empties the store: every issue and what it knew of each board's syncs; the next sync fetches everything again
+    /// Empty the service's cache; its next sync fetches everything again
     Reset,
-    /// Says for each board in the store when it was last synced, when last in full, how many issues it holds, and each label actor's access as GitHub told it
+    /// Show the mirror's boards, sync times and observed actor permissions
     Status,
 }
 
+pub(super) fn open(url: &str) -> anyhow::Result<::store::Store> {
+    ::store::Store::new(url).with_context(|| format!("cannot connect to the store {url}"))
+}
+
 pub(crate) fn run(command: &StoreCommand, context: &Context<'_>) -> Result<(), Failure> {
+    let store = open(&context.store)?;
     match command {
-        StoreCommand::Reset => reset(&context.store),
-        StoreCommand::Status => status(&context.store),
-    }
-}
-
-/// Opens the store at `path`, as every command does.
-pub(super) fn open(path: &Path) -> anyhow::Result<::store::Store> {
-    ::store::Store::open(path).with_context(|| format!("cannot open the store {}", path.display()))
-}
-
-/// Empties the store at `path`. Where there is none, nothing is made.
-fn reset(path: &Path) -> Result<(), Failure> {
-    if !path.exists() {
-        println!("{}: no store here; nothing to empty", path.display());
-        return Ok(());
-    }
-    let removed = open(path)?.clear().context("cannot empty the store")?;
-    println!("{}: emptied, {removed} issues removed", path.display());
-    Ok(())
-}
-
-/// One line per board the store at `path` has a sync of. Where there is
-/// no store, nothing is made.
-fn status(path: &Path) -> Result<(), Failure> {
-    if !path.exists() {
-        println!(
-            "{}: no store here; `kai github sync` makes one",
-            path.display()
-        );
-        return Ok(());
-    }
-    let store = open(path)?;
-    let boards = store.boards().context("cannot read the store")?;
-    if boards.is_empty() {
-        println!("{}: no board synced yet", path.display());
-    }
-    for synced in boards {
-        let full = synced.last_full_sync.unwrap_or_else(|| "never".to_owned());
-        println!(
-            "{}: {} issues, last synced {}, last in full {full}",
-            synced.board, synced.issues, synced.last_sync
-        );
-        for actor in store
-            .access(&synced.board)
-            .context("cannot read the store")?
-        {
-            let access = match actor.access {
-                ::types::Access::Known { permission, role } => match role {
-                    Some(role) => format!("{permission} (role {role})"),
-                    None => permission,
-                },
-                ::types::Access::Unknown(why) => format!("not told: {why}"),
-            };
-            println!("  {}: {access}, asked {}", actor.login, actor.observed_at);
+        StoreCommand::Reset => {
+            let removed = context
+                .runtime
+                .block_on(store.clear())
+                .context("cannot empty the store")?;
+            println!("{}: emptied, {removed} issues removed", context.store);
+        }
+        StoreCommand::Status => {
+            let snapshot = context
+                .runtime
+                .block_on(store.snapshot())
+                .context("cannot read the store")?;
+            if snapshot.boards.is_empty() {
+                println!(
+                    "{}: no board synced yet; `kai github sync` fills it",
+                    context.store
+                );
+            }
+            for board in snapshot.boards {
+                let full = board.last_full_sync.unwrap_or_else(|| "never".into());
+                println!(
+                    "{}: {} issues, last synced {}, last in full {full}",
+                    board.repo, board.issues, board.last_sync
+                );
+                for actor in board.access {
+                    let access = match actor.access {
+                        ::types::Access::Known { permission, role } => match role {
+                            Some(role) => format!("{permission} (role {role})"),
+                            None => permission,
+                        },
+                        ::types::Access::Unknown(why) => format!("not told: {why}"),
+                    };
+                    println!("  {}: {access}, asked {}", actor.login, actor.observed_at);
+                }
+            }
         }
     }
     Ok(())

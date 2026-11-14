@@ -21,16 +21,11 @@ level = "warn"
 # default.
 # board = "owner/name"
 
-# The GitHub API's address; kai sends its queries to <api>/graphql. Only
-# https://, except for this machine.
-# api = "https://api.github.com"
-
 [store]
-# The store, kai's mirror of the issues it fetched, as GitHub said them: a
-# SQLite file that `kai store reset` empties at any time, since a sync
-# fills it again. A file kai makes is readable by its owner only. As
-# --store; a relative path is taken from this file's directory.
-# path = ".kai/store.sqlite"
+# Hatch base URL for the external ticketz mirror. As --store or KAI_STORE.
+# The service owns its database, upstream API and GitHub credentials.
+# HTTPS is required except on loopback. Default:
+# url = "http://127.0.0.1:4287"
 
 [vm]
 # Where `kai vm` keeps what it runs microVMs with: Firecracker and the

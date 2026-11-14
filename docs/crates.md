@@ -13,7 +13,6 @@ flowchart TD
     cli
     diagrams
     engine
-    github
     guest
     helpers
     proxy
@@ -24,7 +23,6 @@ flowchart TD
     agent --> vm
     cli --> agent
     cli --> engine
-    cli --> github
     cli --> helpers
     cli --> proxy
     cli --> store
@@ -35,9 +33,8 @@ flowchart TD
     engine --> proxy
     engine --> types
     engine --> vm
-    github --> helpers
-    github --> types
     proxy --> helpers
+    store --> helpers
     store --> types
     vm --> guest
     vm --> helpers

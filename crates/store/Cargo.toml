@@ -6,16 +6,24 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "The store: a SQLite mirror of the issues kai fetched from GitHub"
+description = "Client of the ticketz mirror exposed through hatch"
 
 [dependencies]
-# SQLite, synchronous. `bundled` compiles SQLite into kai, so that no
-# system library is needed and the version is the one tested.
-rusqlite = { version = "0.42.0", features = ["bundled"] }
-# The module's error type, as in helpers.
+# Common TLS configuration; the client never carries GitHub credentials.
+helpers = { path = "../helpers" }
+# Async HTTP to the configured mirror service, without redirects or environment proxy lookup.
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+# Decode hatch's process envelope and ticketz's versioned records.
+serde.workspace = true
+serde_json = "1.0.154"
+# Typed transport and protocol failures.
 thiserror = "2.0.21"
-tracing.workspace = true
 types = { path = "../types" }
+
+[dev-dependencies]
+# An invented HTTP service; tests never require installed tools or GitHub.
+wiremock = "0.6.5"
+tokio = { version = "1.54.1", features = ["macros", "rt"] }
 
 [lints]
 workspace = true

@@ -14,9 +14,8 @@ use types::RepoName;
 /// The settings file kai looks for, from the current directory upward.
 pub(crate) const CONFIG_FILE: &str = "kai.toml";
 
-/// Where the store is when nothing says otherwise: taken from the
-/// directory of the settings file, else from the current one.
-const DEFAULT_STORE: &str = ".kai/store.sqlite";
+/// The local mirror endpoint when no option or setting overrides it.
+const DEFAULT_STORE: &str = store::DEFAULT_URL;
 
 /// What a `kai.toml` may hold. Every key may be left out; a key kai does
 /// not know is refused, so that a misspelt one is never silently ignored.
@@ -95,15 +94,13 @@ struct LogConfig {
 struct GithubConfig {
     /// As `--board`.
     board: Option<String>,
-    /// The API's URL; github.com's when unset.
-    api: Option<String>,
 }
 
 /// The `[store]` table, as `--store`.
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoreConfig {
-    path: Option<PathBuf>,
+    url: Option<String>,
 }
 
 /// The `[vm]` table.
@@ -182,24 +179,12 @@ pub(crate) fn sinks(
     sinks
 }
 
-/// The store's file: `store` (`--store`), else `store.path` in the
-/// settings file, else the default beside the settings file, else the
-/// default here.
-pub(crate) fn store_path(store: Option<&Path>, config: Option<&Loaded<Config>>) -> PathBuf {
-    if let Some(path) = store {
-        return path.to_path_buf();
-    }
-    match config {
-        Some(config) => config.resolve(
-            config
-                .value
-                .store
-                .path
-                .as_deref()
-                .unwrap_or(Path::new(DEFAULT_STORE)),
-        ),
-        None => PathBuf::from(DEFAULT_STORE),
-    }
+/// The mirror service: --store/KAI_STORE, then store.url, then localhost.
+pub(crate) fn store_url(store: Option<&str>, config: Option<&Loaded<Config>>) -> String {
+    store
+        .or_else(|| config.and_then(|c| c.value.store.url.as_deref()))
+        .unwrap_or(DEFAULT_STORE)
+        .to_owned()
 }
 
 /// The board: `board` (`--board` or `KAI_GITHUB_BOARD`), else
@@ -221,13 +206,6 @@ pub(crate) fn board(
     board
         .parse()
         .with_context(|| format!("github.board in {}", config.path.display()))
-}
-
-/// The GitHub API: `github.api` in the settings file, else github.com's.
-pub(crate) fn api(config: Option<&Loaded<Config>>) -> &str {
-    config
-        .and_then(|config| config.value.github.api.as_deref())
-        .unwrap_or(github::API)
 }
 
 /// Where `kai vm` keeps Firecracker and the guest kernel: `cache`
