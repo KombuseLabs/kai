@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use store::{Error, Store};
-use types::{Access, Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, BoardFiles, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// A path of the test's own for a store file; nothing is there yet.
 fn path(name: &str) -> PathBuf {
@@ -316,4 +316,28 @@ fn the_access_of_each_label_actor_is_kept_and_replaced_as_a_whole() {
     assert_eq!(store.access(&board()).unwrap().len(), 1);
     store.clear().unwrap();
     assert!(store.access(&board()).unwrap().is_empty());
+}
+
+#[test]
+fn a_boards_files_are_kept_and_replaced_as_a_whole() {
+    let mut store = Store::in_memory().unwrap();
+    assert_eq!(store.board_files(&board()).unwrap(), None);
+    let mut files = BoardFiles {
+        branch: "main".to_owned(),
+        commit: "1111111111111111111111111111111111111111".to_owned(),
+        paths: vec!["README.md".to_owned(), "tests/hidden/count.rs".to_owned()],
+        complete: true,
+    };
+    store.record_board_files(&board(), &files).unwrap();
+    let listed = store.board_files(&board()).unwrap().unwrap();
+    assert_eq!(listed.files, files);
+    assert!(listed.observed_at.ends_with('Z'));
+
+    files.paths.truncate(1);
+    files.complete = false;
+    store.record_board_files(&board(), &files).unwrap();
+    assert_eq!(store.board_files(&board()).unwrap().unwrap().files, files);
+
+    store.clear().unwrap();
+    assert_eq!(store.board_files(&board()).unwrap(), None);
 }

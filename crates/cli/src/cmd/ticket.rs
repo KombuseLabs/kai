@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use clap::{Args, Subcommand};
-use types::{ActorAccess, IssueState, Outcome, RepoName, Ticket, Verdict};
+use engine::qualify::Facts;
+use types::{ActorAccess, BoardFiles, IssueState, Outcome, RepoName, Ticket, Verdict};
 
 use super::{Context, Failure};
 use crate::settings;
@@ -49,10 +50,10 @@ pub(crate) fn run(command: &TicketCommand, context: &Context<'_>) -> Result<(), 
     if let TicketCommand::Deps(args) = command {
         return deps(args, context);
     }
-    let (tickets, access) = tickets(&context.store)?;
+    let (tickets, known) = tickets(context)?;
     match command {
         TicketCommand::List => print_list(&tickets),
-        TicketCommand::Qualify => print_qualify(&tickets, &access),
+        TicketCommand::Qualify => print_qualify(&tickets, &known),
         TicketCommand::Deps(_) => {}
     }
     Ok(())
@@ -71,7 +72,7 @@ fn target(args: &DepsArgs, context: &Context<'_>) -> Result<(RepoName, String), 
         return Ok((repo.clone(), sha.to_ascii_lowercase()));
     }
     let number = args.number.unwrap_or_default();
-    let (tickets, access) = tickets(&context.store)?;
+    let (tickets, known) = tickets(context)?;
     let found: Vec<&Ticket> = tickets
         .iter()
         .filter(|t| t.issue.number == number)
@@ -89,7 +90,7 @@ fn target(args: &DepsArgs, context: &Context<'_>) -> Result<(RepoName, String), 
             )));
         }
     };
-    let qualification = ::engine::qualify::qualify(ticket, board_access(&access, ticket));
+    let qualification = ::engine::qualify::qualify(ticket, &known.facts(ticket));
     if qualification.verdict() == Verdict::Refused {
         let why: Vec<String> = qualification
             .findings
@@ -222,12 +223,45 @@ fn shell_word(word: &[u8]) -> Vec<u8> {
     quoted
 }
 
-/// What GitHub said of the access of each board's label actors.
-type BoardAccess = BTreeMap<RepoName, Vec<ActorAccess>>;
+/// What kai knows beside the tickets: per board, its label actors' access
+/// and its files as GitHub told them, and where the fetch runs' layers lie.
+struct Known {
+    boards: BTreeMap<RepoName, Board>,
+    /// kai's VM cache, or `None` when there is none to look in.
+    cache: Option<PathBuf>,
+}
 
-/// Every issue in the store, read as a ticket, and the access of each
-/// board's label actors; a hint on standard error when there is no ticket.
-fn tickets(store_path: &Path) -> anyhow::Result<(Vec<Ticket>, BoardAccess)> {
+/// What the store keeps of one board beside its issues.
+struct Board {
+    access: Vec<ActorAccess>,
+    files: Option<BoardFiles>,
+}
+
+impl Known {
+    /// What kai knows beside `ticket`, for qualifying it.
+    fn facts(&self, ticket: &Ticket) -> Facts {
+        let board = self.boards.get(&ticket.issue.repo);
+        let form = ticket.form.as_ref();
+        let repo = form
+            .and_then(|form| form.repo.as_deref())
+            .and_then(|repo| repo.parse::<RepoName>().ok());
+        let sha = form.and_then(|form| form.base_ref.as_deref());
+        let commit_fetched = match (&self.cache, repo, sha) {
+            (Some(cache), Some(repo), Some(sha)) => ::engine::deps::fetched(cache, &repo, sha),
+            _ => false,
+        };
+        Facts {
+            access: board.map(|board| board.access.clone()).unwrap_or_default(),
+            board_files: board.and_then(|board| board.files.clone()),
+            commit_fetched,
+        }
+    }
+}
+
+/// Every issue in the store, read as a ticket, and what kai knows beside
+/// them; a hint on standard error when there is no ticket.
+fn tickets(context: &Context<'_>) -> anyhow::Result<(Vec<Ticket>, Known)> {
+    let store_path = &context.store;
     let store = super::store::open(store_path)?;
     let tickets: Vec<Ticket> = store
         .issues()
@@ -241,20 +275,25 @@ fn tickets(store_path: &Path) -> anyhow::Result<(Vec<Ticket>, BoardAccess)> {
             store_path.display()
         );
     }
-    let mut access = BoardAccess::new();
+    let mut boards = BTreeMap::new();
     for ticket in &tickets {
         let board = &ticket.issue.repo;
-        if !access.contains_key(board) {
-            let answers = store.access(board).context("cannot read the store")?;
-            access.insert(board.clone(), answers);
+        if !boards.contains_key(board) {
+            let access = store.access(board).context("cannot read the store")?;
+            let files = store
+                .board_files(board)
+                .context("cannot read the store")?
+                .map(|listed| listed.files);
+            boards.insert(board.clone(), Board { access, files });
         }
     }
-    Ok((tickets, access))
-}
-
-/// The access of the label actors of `ticket`'s board.
-fn board_access<'a>(access: &'a BoardAccess, ticket: &Ticket) -> &'a [ActorAccess] {
-    access.get(&ticket.issue.repo).map_or(&[], Vec::as_slice)
+    // Without a cache, no commit counts as fetched: at-ref stays not
+    // checked, which is what it is.
+    let named = std::env::var_os("KAI_VM_CACHE")
+        .filter(|cache| !cache.is_empty())
+        .map(PathBuf::from);
+    let cache = settings::vm_cache(named.as_deref(), context.config).ok();
+    Ok((tickets, Known { boards, cache }))
 }
 
 /// One line per ticket: issue, state, labels, title, in columns.
@@ -286,7 +325,7 @@ fn print_list(tickets: &[Ticket]) {
 
 /// Per ticket its verdict, and below it each rule that failed or was not
 /// checked, with why; then the count of each verdict.
-fn print_qualify(tickets: &[Ticket], access: &BoardAccess) {
+fn print_qualify(tickets: &[Ticket], known: &Known) {
     let issue_width = tickets
         .iter()
         .map(|t| t.issue.to_string().len())
@@ -294,7 +333,7 @@ fn print_qualify(tickets: &[Ticket], access: &BoardAccess) {
         .unwrap_or(0);
     let (mut qualified, mut refused, mut undecided) = (0, 0, 0);
     for ticket in tickets {
-        let qualification = ::engine::qualify::qualify(ticket, board_access(access, ticket));
+        let qualification = ::engine::qualify::qualify(ticket, &known.facts(ticket));
         let verdict = qualification.verdict();
         match verdict {
             Verdict::Qualified => qualified += 1,

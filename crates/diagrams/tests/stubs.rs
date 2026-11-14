@@ -188,6 +188,8 @@ fn the_types_of_docs_qualify_make_the_round_trip() {
         [
             "Access",
             "ActorAccess",
+            "BoardFiles",
+            "Facts",
             "Finding",
             "Form",
             "Issue",

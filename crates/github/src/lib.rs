@@ -12,6 +12,9 @@
 //!   /repos/{owner}/{repo}/collaborators/{login}/permission`), one request
 //!   per account. An answer that is not a success is kept as
 //!   [`Access::Unknown`] with GitHub's words, not as an error.
+//! - **The board's files**: [`Client::board_files`] lists every file of
+//!   the board at the head of its default branch (one GraphQL query, one
+//!   REST request for the tree), where the hidden tests of its tickets lie.
 //! - **From a cursor**: [`Client::fetch_board`] takes the time the last
 //!   sync recorded and asks only for issues changed since then, and says
 //!   where the next sync starts.
@@ -29,7 +32,7 @@ use secrecy::ExposeSecret as _;
 pub use secrecy::SecretString;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use types::{Access, Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, BoardFiles, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// The API of github.com.
 pub const API: &str = "https://api.github.com";
@@ -67,6 +70,16 @@ query ($owner: String!, $name: String!, $since: DateTime, $after: String, $page:
     }
   }
   rateLimit { cost remaining resetAt }
+}
+"#;
+
+/// The board's default branch, the commit at its head and that commit's
+/// tree.
+const BRANCH_QUERY: &str = r#"
+query ($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name target { oid ... on Commit { tree { oid } } } }
+  }
 }
 "#;
 
@@ -166,33 +179,19 @@ impl Client {
     /// status and message; only a request that got no answer, or an answer
     /// kai cannot read, is an error.
     pub async fn access(&self, board: &RepoName, login: &str) -> Result<Access, Error> {
-        let mut url = reqwest::Url::parse(&self.api).map_err(|_| Error::Api(self.api.clone()))?;
-        // Each part is encoded as one segment, so a login cannot reach
-        // another path.
-        url.path_segments_mut()
-            .map_err(|()| Error::Api(self.api.clone()))?
-            .pop_if_empty()
-            .extend([
-                "repos",
-                board.owner(),
-                board.name(),
-                "collaborators",
-                login,
-                "permission",
-            ]);
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(self.token.expose_secret())
-            .header("accept", "application/vnd.github+json")
-            .send()
-            .await
-            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
-        let status = response.status();
-        let body = response
-            .bytes()
-            .await
-            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
+        let (status, body) = self
+            .rest(
+                &[
+                    "repos",
+                    board.owner(),
+                    board.name(),
+                    "collaborators",
+                    login,
+                    "permission",
+                ],
+                None,
+            )
+            .await?;
         if !status.is_success() {
             return Ok(Access::Unknown(format!(
                 "GitHub answered {}: {}",
@@ -208,9 +207,101 @@ impl Client {
         })
     }
 
+    /// The files of `board` at the head of its default branch: one
+    /// GraphQL query for the branch, its commit and that commit's tree, and
+    /// one REST request for the tree, recursive. GitHub cuts a long listing
+    /// short and says so ([`BoardFiles::complete`]).
+    pub async fn board_files(&self, board: &RepoName) -> Result<BoardFiles, Error> {
+        let request = Request {
+            query: BRANCH_QUERY,
+            variables: BoardVariables {
+                owner: board.owner(),
+                name: board.name(),
+            },
+        };
+        let data: wire::BranchData = self.query(&request).await?;
+        let branch = data
+            .repository
+            .ok_or_else(|| Error::NoBoard(board.clone()))?
+            .default_branch_ref
+            .ok_or_else(|| Error::Answer(format!("{board} has no default branch")))?;
+        let tree_oid = branch
+            .target
+            .tree
+            .ok_or_else(|| Error::Answer("the default branch's head is not a commit".to_owned()))?
+            .oid;
+        let (status, body) = self
+            .rest(
+                &[
+                    "repos",
+                    board.owner(),
+                    board.name(),
+                    "git",
+                    "trees",
+                    &tree_oid,
+                ],
+                Some(("recursive", "1")),
+            )
+            .await?;
+        if !status.is_success() {
+            return Err(Error::Status {
+                status: status.as_u16(),
+                message: message(&body),
+            });
+        }
+        let tree: wire::Tree =
+            serde_json::from_slice(&body).map_err(|err| Error::Answer(err.to_string()))?;
+        Ok(BoardFiles {
+            branch: branch.name,
+            commit: branch.target.oid,
+            paths: tree
+                .tree
+                .into_iter()
+                .filter(|entry| entry.kind == "blob")
+                .map(|entry| entry.path)
+                .collect(),
+            complete: !tree.truncated,
+        })
+    }
+
+    /// A GET of the REST API at the path made of `segments`, each encoded
+    /// as one segment, so that no part can reach another path; returns the
+    /// status and the body. Only no answer is an error.
+    async fn rest(
+        &self,
+        segments: &[&str],
+        query: Option<(&str, &str)>,
+    ) -> Result<(reqwest::StatusCode, Vec<u8>), Error> {
+        let mut url = reqwest::Url::parse(&self.api).map_err(|_| Error::Api(self.api.clone()))?;
+        url.path_segments_mut()
+            .map_err(|()| Error::Api(self.api.clone()))?
+            .pop_if_empty()
+            .extend(segments);
+        if let Some((name, value)) = query {
+            url.query_pairs_mut().append_pair(name, value);
+        }
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(self.token.expose_secret())
+            .header("accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
+        let status = response.status();
+        let body = response
+            .bytes()
+            .await
+            .map_err(|err| Error::Transport(http::error_chain(&err)))?;
+        Ok((status, body.to_vec()))
+    }
+
     /// Sends one GraphQL request and returns its `data`. An HTTP error, or
     /// an answer with `errors`, is an error, even if it also holds data.
-    async fn query<T: DeserializeOwned>(&self, request: &Request<'_>) -> Result<T, Error> {
+    async fn query<T: DeserializeOwned, V: Serialize>(
+        &self,
+        request: &Request<'_, V>,
+    ) -> Result<T, Error> {
         let response = self
             .http
             .post(&self.graphql)
@@ -275,9 +366,16 @@ pub fn token_from_gh() -> Result<SecretString, Error> {
 }
 
 #[derive(Serialize)]
-struct Request<'a> {
+struct Request<'a, V> {
     query: &'a str,
-    variables: Variables<'a>,
+    variables: V,
+}
+
+/// The variables of a query that names only the board.
+#[derive(Serialize)]
+struct BoardVariables<'a> {
+    owner: &'a str,
+    name: &'a str,
 }
 
 /// `since` and `after` are sent as `null` when there is none.
@@ -308,6 +406,51 @@ mod wire {
     #[derive(Deserialize)]
     pub(super) struct Message {
         pub(super) message: String,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct BranchData {
+        pub(super) repository: Option<BranchRepository>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct BranchRepository {
+        pub(super) default_branch_ref: Option<Branch>,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct Branch {
+        pub(super) name: String,
+        pub(super) target: Target,
+    }
+
+    /// A commit, or another object, which has no `tree`.
+    #[derive(Deserialize)]
+    pub(super) struct Target {
+        pub(super) oid: String,
+        #[serde(default)]
+        pub(super) tree: Option<Oid>,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct Oid {
+        pub(super) oid: String,
+    }
+
+    /// A tree, listed recursively (REST).
+    #[derive(Deserialize)]
+    pub(super) struct Tree {
+        pub(super) tree: Vec<TreeEntry>,
+        #[serde(default)]
+        pub(super) truncated: bool,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct TreeEntry {
+        pub(super) path: String,
+        #[serde(rename = "type")]
+        pub(super) kind: String,
     }
 
     /// The answer on a collaborator's permission (REST, snake case).

@@ -266,6 +266,33 @@ fn cached(cache: &Path, key: &str) -> Option<(PathBuf, LayerInfo)> {
     (info.format == LAYER_FORMAT && info.key == key && file.is_file()).then_some((file, info))
 }
 
+/// Whether `cache` holds a fetch layer of `repo` at `sha`, of any image
+/// or script: a fetch run checked that commit out, so the repository has
+/// it. A fetch run whose guest checked out another commit keeps no layer.
+pub fn fetched(cache: &Path, repo: &RepoName, sha: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(cache.join("layers")) else {
+        return false;
+    };
+    let repo = repo.to_string();
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            return false;
+        }
+        let Some(info) = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<LayerInfo>(&bytes).ok())
+        else {
+            return false;
+        };
+        info.format == LAYER_FORMAT
+            && info.kind == "fetch"
+            && info.repo == repo
+            && info.sha.eq_ignore_ascii_case(sha)
+            && path.with_extension("ext4").is_file()
+    })
+}
+
 /// Fetches and builds, or takes what the cache holds; returns the two
 /// layers.
 pub async fn deps(launch: &Launch, request: &Request<'_>) -> Result<Layers, Error> {

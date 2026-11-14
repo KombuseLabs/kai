@@ -10,6 +10,7 @@
 //! default.
 
 mod access;
+mod board;
 mod issue;
 mod qualification;
 mod repo;
@@ -17,6 +18,7 @@ pub mod study;
 mod ticket;
 
 pub use access::{Access, ActorAccess};
+pub use board::BoardFiles;
 pub use issue::Issue;
 pub use qualification::{Finding, Outcome, Qualification, Rule, Verdict};
 pub use repo::{IssueId, ParseRepoNameError, RepoName};

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use store::Store;
-use types::{Access, Issue, IssueId, IssueState, LabelEvent};
+use types::{Access, BoardFiles, Issue, IssueId, IssueState, LabelEvent};
 
 /// A fresh directory of the test's own, outside the repository so that no
 /// `.env` or `kai.toml` above it is found.
@@ -114,6 +114,87 @@ fn qualify_gives_each_verdict_and_why() {
     assert!(out.contains("failed       no-code-block: "), "{out}");
     assert!(
         out.ends_with("0 qualified, 2 refused, 1 undecided\n"),
+        "{out}"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn qualify_qualifies_a_ticket_once_everything_is_known() {
+    let dir = dir("qualify-all");
+    let board = "example-org/example-board".parse().unwrap();
+    let mut issue = issue(1, &["kai"], "Count the widgets.");
+    issue.label_events = vec![LabelEvent {
+        label: "kai".to_owned(),
+        actor: Some("example-maintainer".to_owned()),
+        at: "2026-01-02T03:00:00Z".to_owned(),
+    }];
+    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    store.record_sync(&board, &[issue], None, false).unwrap();
+    store
+        .record_access(
+            &board,
+            &[(
+                "example-maintainer".to_owned(),
+                Access::Known {
+                    permission: "admin".to_owned(),
+                    role: Some("admin".to_owned()),
+                },
+            )],
+        )
+        .unwrap();
+    let files = |paths: &[&str]| BoardFiles {
+        branch: "main".to_owned(),
+        commit: "1111111111111111111111111111111111111111".to_owned(),
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        complete: true,
+    };
+    store
+        .record_board_files(&board, &files(&["tests/hidden/invented.rs"]))
+        .unwrap();
+    drop(store);
+    let cache = dir.join("vm-cache");
+    let env = [("KAI_VM_CACHE", cache.to_str().unwrap())];
+
+    // No fetch run checked the commit out yet.
+    let output = kai(&dir, &["ticket", "qualify"], &env);
+    let out = stdout(&output);
+    assert!(out.contains("#1  undecided"), "{out}");
+    assert!(
+        out.contains("not checked  at-ref: whether example-org/example-code has the commit"),
+        "{out}"
+    );
+
+    // A fetch layer of the commit, as `kai ticket deps` leaves one.
+    std::fs::create_dir_all(cache.join("layers")).unwrap();
+    std::fs::write(cache.join("layers/invented.ext4"), "").unwrap();
+    std::fs::write(
+        cache.join("layers/invented.json"),
+        r#"{"format":"kai-layer/1","kind":"fetch","key":"sha256:invented",
+            "ecosystem":"rust","repo":"example-org/example-code",
+            "sha":"0123456789abcdef0123456789abcdef01234567",
+            "image":"sha256:invented","script":"sha256:invented","run_dir":"runs/invented"}"#,
+    )
+    .unwrap();
+    let output = kai(&dir, &["ticket", "qualify"], &env);
+    let out = stdout(&output);
+    assert!(out.contains("#1  qualified"), "{out}");
+    assert!(
+        out.ends_with("1 qualified, 0 refused, 0 undecided\n"),
+        "{out}"
+    );
+
+    // The hidden tests gone from the board refuse it.
+    let mut store = Store::open(&dir.join(".kai/store.sqlite")).unwrap();
+    store
+        .record_board_files(&board, &files(&["README.md"]))
+        .unwrap();
+    drop(store);
+    let output = kai(&dir, &["ticket", "qualify"], &env);
+    let out = stdout(&output);
+    assert!(out.contains("#1  refused"), "{out}");
+    assert!(
+        out.contains("failed       at-ref: no file of the board"),
         "{out}"
     );
     std::fs::remove_dir_all(dir).unwrap();

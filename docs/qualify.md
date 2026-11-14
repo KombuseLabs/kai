@@ -3,7 +3,7 @@
 `engine::qualify::qualify` decides from what GitHub said about a ticket
 whether kai may use it. It is a pure function: no repository, no VM, no
 model, no network. The types it reads and returns are in the crate
-`types`. The store keeps an `Issue` as GitHub said it, body and all;
+`types`, and what kai knows beside a ticket comes in as `Facts`. The store keeps an `Issue` as GitHub said it, body and all;
 `engine::ticket::from_issue` reads its body as the kai ticket form and
 makes the `Ticket` that `qualify` judges.
 
@@ -68,7 +68,18 @@ classDiagram
 
     class qualify {
         <<function>>
-        +qualify(ticket: &Ticket, access: &[ActorAccess]) Qualification
+        +qualify(ticket: &Ticket, facts: &Facts) Qualification
+    }
+    class Facts {
+        +Vec~ActorAccess~ access
+        +Option~BoardFiles~ board_files
+        +bool commit_fetched
+    }
+    class BoardFiles {
+        +String branch
+        +String commit
+        +Vec~String~ paths
+        +bool complete
     }
     class ActorAccess {
         +String login
@@ -126,7 +137,9 @@ classDiagram
     Ticket "1" *-- "*" LabelEvent
     Ticket --> IssueState
     qualify ..> Ticket : reads
-    qualify ..> ActorAccess : reads, the board's
+    qualify ..> Facts : reads
+    Facts "1" *-- "*" ActorAccess : the board's
+    Facts "1" *-- "0..1" BoardFiles : the board's
     ActorAccess --> Access
     qualify ..> Qualification : returns
     Qualification "1" *-- "*" Finding
@@ -145,7 +158,7 @@ events are cut off, the latest are the ones missing.
 ## What `qualify` does
 
 ```mermaid
-%% drawn from engine::qualify::qualify#98bb06cc, engine::qualify::form_rules#90473c16
+%% drawn from engine::qualify::qualify#c89805f9, engine::qualify::form_rules#05e3aed7
 flowchart TD
     T([Ticket]) --> I["Issue rules, always applied:<br/>label, trust-gate, open"]
     I --> F{"Is the body the<br/>kai ticket form?"}
@@ -168,7 +181,7 @@ flowchart TD
 | `ref` | the ref is a full commit sha (40 hex digits) | it is missing, a branch, or short | |
 | `check` | the ticket names a check | | it names none: the ecosystem's default is not detected yet |
 | `hidden-tests` | the ticket names hidden tests | it names none | |
-| `at-ref` | | | always, for now: the repository is not looked at |
+| `at-ref` | a fetch run checked the ticket's commit out (`kai ticket deps` left its layer in the cache), and a file of the board matches the hidden tests: the path itself, a file under it, or a glob (`*` and `?` within a part, `**` across parts) | the code repository is the board itself; no file of a full listing of the board matches | the ticket names no repository, full ref or hidden tests; hidden tests given as a pull request; the board's files were never listed, or the listing was cut short and nothing matched; no fetch run checked the commit out |
 
 ## The verdict
 
@@ -182,9 +195,14 @@ flowchart TD
     B -- no --> OK([Qualified])
 ```
 
-A rule that was not checked is never counted as met. Since `at-ref` is
-not checked for any ticket yet, every ticket is refused or undecided; none
-is qualified until it is built.
+A rule that was not checked is never counted as met. A ticket is
+qualified only once kai knows everything beside it: the label actor's
+access (`kai github sync --actor-permissions`), the board's files (every
+`kai github sync`) and its commit fetched (`kai ticket deps`).
+
+The hidden tests lie in the board repository, never in the code
+repository: the agent works in a tree of the code repository and must
+not see them. `at-ref` checks that they are there, not what they hold.
 
 The trust gate judges the access the account has **when it was asked**,
 not when it put the label on: an account that lost write access since
@@ -197,14 +215,19 @@ whoever puts the label on again after a maintainer is the one judged.
 `--full` it also removes those GitHub no longer returns, and with
 `--actor-permissions` it asks GitHub what access each account that put a
 label on has to the board now, and keeps the answers: the data the trust
-gate is judged on. `kai ticket qualify` reads the issues and each board's
-answers, makes each issue a ticket and judges it. Qualifying
+gate is judged on. Every sync also lists the board's files at the head of
+its default branch, where the hidden tests lie; the token needs read
+access to the board's contents for that, and where GitHub refuses, the
+sync says so and keeps the listing of before. `kai ticket qualify`
+reads the issues and what the store keeps of each board, looks in kai's
+VM cache for a fetch layer of each ticket's commit, makes each issue a
+ticket and judges it. Qualifying
 needs no network: it works on what the last sync fetched, and `kai store
 status` says when that was.
 
 ```mermaid
 %% checked against crates/store, crates/github, crates/engine
-%% drawn from cli::cmd::github::sync#1465a1e2, cli::cmd::ticket::print_qualify#87a2969f
+%% drawn from cli::cmd::github::sync#bcbe5b9d, cli::cmd::ticket::print_qualify#a66f8c6f
 sequenceDiagram
     actor You
     participant cli as kai (cli)
@@ -230,16 +253,25 @@ sequenceDiagram
         end
         cli->>store: record_access(board, answers)
     end
+    cli->>gh: board_files(board)
+    gh->>GitHub: GraphQL, the default branch's head; REST, its tree
+    alt GitHub lists them
+        gh-->>cli: BoardFiles
+        cli->>store: record_board_files(board, files)
+    else GitHub refuses
+        Note over cli: says why; the listing of before stays
+    end
 
     You->>cli: kai ticket qualify
     cli->>store: issues()
     store-->>cli: every issue
-    cli->>store: access(board), once per board
-    store-->>cli: what GitHub said of each label actor
+    cli->>store: access(board) and board_files(board), once per board
+    store-->>cli: what GitHub said of the label actors and the files
     loop each issue
         cli->>ticket: from_issue(issue)
         ticket-->>cli: Ticket, the body read as the form
-        cli->>engine: qualify(ticket, the board's access)
+        Note over cli: commit_fetched: a fetch layer of the ticket's commit in the VM cache
+        cli->>engine: qualify(ticket, facts)
         engine-->>cli: Qualification
         Note over cli: prints the verdict and each finding that did not pass
     end

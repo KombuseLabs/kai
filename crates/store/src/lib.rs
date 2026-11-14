@@ -15,6 +15,9 @@
 //! is asked, the answers replace those of before; an access GitHub did not
 //! tell is kept with GitHub's words, never as no access.
 //!
+//! And it keeps the files of each board at the head of its default branch,
+//! as GitHub listed them last: where the hidden tests of its tickets lie.
+//!
 //! A file that is not kai's store is never emptied, nor changed at all.
 //! kai marks its stores with a SQLite application id and refuses a
 //! database without it that holds tables.
@@ -48,14 +51,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, Row, Transaction, params};
-use types::{Access, ActorAccess, Issue, IssueId, IssueState, LabelEvent, RepoName};
+use types::{Access, ActorAccess, BoardFiles, Issue, IssueId, IssueState, LabelEvent, RepoName};
 
 /// Marks a SQLite file as kai's store (`PRAGMA application_id`): "kai1".
 const APPLICATION_ID: i32 = 0x6b61_6931;
 
 /// The schema below. Any change to it raises this number, which empties
 /// every store of an older one when it is next opened.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 /// How long a command waits for another process that holds the file.
 const BUSY: Duration = Duration::from_secs(5);
@@ -107,6 +110,19 @@ CREATE TABLE actor_access (
     PRIMARY KEY (board, login),
     CHECK ((permission IS NULL) <> (unknown IS NULL))
 ) STRICT;
+CREATE TABLE board_tree (
+    board       TEXT    NOT NULL PRIMARY KEY,
+    branch      TEXT    NOT NULL,
+    head        TEXT    NOT NULL,
+    complete    INTEGER NOT NULL,
+    observed_at TEXT    NOT NULL
+) STRICT;
+CREATE TABLE board_file (
+    board    TEXT    NOT NULL,
+    position INTEGER NOT NULL,
+    path     TEXT    NOT NULL,
+    PRIMARY KEY (board, position)
+) STRICT;
 CREATE TABLE sync_state (
     board          TEXT NOT NULL PRIMARY KEY,
     since          TEXT,
@@ -114,6 +130,15 @@ CREATE TABLE sync_state (
     last_full_sync TEXT
 ) STRICT;
 ";
+
+/// A board's files as GitHub listed them last, and when.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListedFiles {
+    /// The files.
+    pub files: BoardFiles,
+    /// When GitHub listed them (RFC 3339, UTC).
+    pub observed_at: String,
+}
 
 /// An open store.
 #[derive(Debug)]
@@ -281,7 +306,7 @@ impl Store {
         let removed = tx.execute("DELETE FROM issue", [])?;
         tx.execute_batch(
             "DELETE FROM label; DELETE FROM label_event; DELETE FROM actor_access;
-             DELETE FROM sync_state;",
+             DELETE FROM board_tree; DELETE FROM board_file; DELETE FROM sync_state;",
         )?;
         tx.commit()?;
         Ok(removed)
@@ -366,6 +391,71 @@ impl Store {
                 })
             })?
             .collect::<Result<_, _>>()?)
+    }
+
+    /// Records the files of `board` as GitHub listed them now, in place of
+    /// those of before.
+    pub fn record_board_files(
+        &mut self,
+        board: &RepoName,
+        files: &BoardFiles,
+    ) -> Result<(), Error> {
+        let board = board.to_string();
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM board_file WHERE board = ?1", [&board])?;
+        tx.execute(
+            &format!(
+                "INSERT OR REPLACE INTO board_tree (board, branch, head, complete, observed_at)
+                 VALUES (?1, ?2, ?3, ?4, {NOW})"
+            ),
+            params![board, files.branch, files.commit, files.complete],
+        )?;
+        for (position, path) in files.paths.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO board_file (board, position, path) VALUES (?1, ?2, ?3)",
+                params![board, int(position)?, path],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The files of `board` as GitHub listed them last, and when, or
+    /// `None` when they were never listed.
+    pub fn board_files(&self, board: &RepoName) -> Result<Option<ListedFiles>, Error> {
+        let board = board.to_string();
+        let head = self
+            .conn
+            .query_row(
+                "SELECT branch, head, complete, observed_at FROM board_tree WHERE board = ?1",
+                [&board],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((branch, commit, complete, observed_at)) = head else {
+            return Ok(None);
+        };
+        let paths = self
+            .conn
+            .prepare("SELECT path FROM board_file WHERE board = ?1 ORDER BY position")?
+            .query_map([&board], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(Some(ListedFiles {
+            files: BoardFiles {
+                branch,
+                commit,
+                paths,
+                complete,
+            },
+            observed_at,
+        }))
     }
 
     /// Every board the store has a sync of, by name.

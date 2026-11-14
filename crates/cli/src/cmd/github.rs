@@ -12,7 +12,7 @@ const TOKEN_VARIABLE: &str = "KAI_GITHUB_TOKEN";
 
 #[derive(Subcommand)]
 pub(crate) enum GithubCommand {
-    /// Fetches the board's issues changed since the last sync into the store; writes nothing to GitHub.
+    /// Fetches the board's issues changed since the last sync, and lists its files, into the store; writes nothing to GitHub.
     ///
     /// The token is KAI_GITHUB_TOKEN, else what `gh auth token` prints.
     Sync {
@@ -45,7 +45,8 @@ pub(crate) fn run(command: &GithubCommand, context: &Context<'_>) -> Result<(), 
 }
 
 /// Fetches `board`'s issues from the API at `api` into the store: all of
-/// them with `full`, else those changed since the last sync. With
+/// them with `full`, else those changed since the last sync; then the
+/// board's files, where the hidden tests lie. With
 /// `actor_permissions`, then the access of every account that put a label
 /// on an issue the store holds.
 fn sync(
@@ -115,6 +116,29 @@ fn sync(
             "{board}: access of {} label actors asked, {unknown} not told",
             answers.len()
         );
+    }
+    // The listing is evidence for one rule; when GitHub refuses it (a
+    // token that may not read the board's contents), the issues and
+    // permissions stay synced, the listing of before stays, and this says
+    // why on the command's output.
+    match context.runtime.block_on(client.board_files(board)) {
+        Ok(files) => {
+            store
+                .record_board_files(board, &files)
+                .context("cannot write the store")?;
+            let cut = if files.complete {
+                ""
+            } else {
+                ", GitHub cut the listing short"
+            };
+            println!(
+                "{board}: {} files listed at {} ({}){cut}",
+                files.paths.len(),
+                files.branch,
+                &files.commit[..files.commit.len().min(12)]
+            );
+        }
+        Err(err) => println!("{board}: files not listed, the listing of before is kept: {err}"),
     }
     Ok(())
 }

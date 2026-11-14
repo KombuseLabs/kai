@@ -134,6 +134,30 @@ async fn both_layers_are_made_then_taken_from_the_cache() {
 }
 
 #[tokio::test]
+async fn a_commit_counts_as_fetched_once_its_fetch_layer_is_in_the_cache() {
+    // The stand-in tells the runs apart by "fetch" in their directory.
+    let dir = dir("commit-there");
+    let cache = dir.join("cache");
+    let repo: RepoName = "example-org/example-code".parse().unwrap();
+    let other: RepoName = "example-org/other-code".parse().unwrap();
+    assert!(!deps::fetched(&cache, &repo, SHA));
+    run(&dir, &["build"]).await.unwrap_err();
+    // The fetch layer was kept, though the build's was not.
+    assert!(deps::fetched(&cache, &repo, SHA));
+    assert!(deps::fetched(&cache, &repo, &SHA.to_ascii_uppercase()));
+    assert!(!deps::fetched(&cache, &other, SHA));
+    assert!(!deps::fetched(&cache, &repo, &"9".repeat(40)));
+}
+
+#[tokio::test]
+async fn a_fetch_run_that_kept_nothing_does_not_count_as_fetched() {
+    let dir = dir("nothing-kept");
+    run(&dir, &["fetch"]).await.unwrap_err();
+    let repo: RepoName = "example-org/example-code".parse().unwrap();
+    assert!(!deps::fetched(&dir.join("cache"), &repo, SHA));
+}
+
+#[tokio::test]
 async fn a_fetch_layer_its_run_did_not_keep_is_an_error_every_time() {
     let dir = dir("fetch-lost");
     for _ in 0..2 {

@@ -1,5 +1,6 @@
 //! Fetching a board from a mock server that stands in for GitHub, with
 //! invented answers: pages, the cursor, the token, an account's access,
+//! the board's files,
 //! and what GitHub refuses.
 
 use std::path::Path;
@@ -8,7 +9,7 @@ use github::{Client, Error};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use types::{Access, IssueState, LabelEvent, RepoName};
-use wiremock::matchers::{body_partial_json, header, method, path};
+use wiremock::matchers::{body_partial_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TOKEN: &str = "invented-token-0123456789";
@@ -261,4 +262,35 @@ async fn a_login_stays_one_part_of_the_path() {
     let access = client(&github).access(&board(), "../../x").await.unwrap();
 
     assert!(matches!(access, Access::Known { .. }), "{access:?}");
+}
+
+#[tokio::test]
+async fn the_boards_files_are_listed_at_the_head_of_its_default_branch() {
+    let github = MockServer::start().await;
+    graphql(
+        &github,
+        json!({ "owner": "example-org", "name": "example-board" }),
+        "board-branch.json",
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/repos/example-org/example-board/git/trees/2222222222222222222222222222222222222222",
+        ))
+        .and(query_param("recursive", "1"))
+        .and(header("authorization", format!("Bearer {TOKEN}").as_str()))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(fixture("board-tree.json"), "application/json"),
+        )
+        .expect(1)
+        .mount(&github)
+        .await;
+
+    let files = client(&github).board_files(&board()).await.unwrap();
+
+    assert_eq!(files.branch, "main");
+    assert_eq!(files.commit, "1111111111111111111111111111111111111111");
+    // Files only; directories are not listed.
+    assert_eq!(files.paths, ["README.md", "tests/hidden/count.rs"]);
+    assert!(files.complete);
 }

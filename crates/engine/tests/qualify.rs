@@ -1,8 +1,9 @@
 //! Static qualification on hand-written, invented tickets.
 
-use engine::qualify::qualify;
+use engine::qualify::{Facts, qualify};
 use types::{
-    Access, ActorAccess, Form, IssueId, IssueState, LabelEvent, Outcome, Rule, Ticket, Verdict,
+    Access, ActorAccess, BoardFiles, Form, IssueId, IssueState, LabelEvent, Outcome, Rule, Ticket,
+    Verdict,
 };
 
 /// A ticket that meets every rule static qualification can check.
@@ -58,6 +59,26 @@ fn access() -> Vec<ActorAccess> {
     ]
 }
 
+/// The board's files: the hidden tests of [`good`] among them.
+fn files() -> BoardFiles {
+    BoardFiles {
+        branch: "main".to_owned(),
+        commit: "1111111111111111111111111111111111111111".to_owned(),
+        paths: vec!["README.md".to_owned(), "tests/hidden/count.rs".to_owned()],
+        complete: true,
+    }
+}
+
+/// Everything kai can know beside a ticket, with `access`: the board's
+/// files listed, the commit fetched.
+fn with(access: &[ActorAccess]) -> Facts {
+    Facts {
+        access: access.to_vec(),
+        board_files: Some(files()),
+        commit_fetched: true,
+    }
+}
+
 /// The outcome of `rule`, which must have been applied once.
 fn outcome(ticket: &Ticket, rule: Rule) -> Outcome {
     outcome_with(ticket, &access(), rule)
@@ -65,7 +86,7 @@ fn outcome(ticket: &Ticket, rule: Rule) -> Outcome {
 
 /// The outcome of `rule` with `access`.
 fn outcome_with(ticket: &Ticket, access: &[ActorAccess], rule: Rule) -> Outcome {
-    let findings = qualify(ticket, access).findings;
+    let findings = qualify(ticket, &with(access)).findings;
     let mut matching = findings.iter().filter(|f| f.rule == rule);
     let finding = matching.next().expect("the rule was applied");
     assert!(matching.next().is_none(), "the rule was applied twice");
@@ -77,9 +98,19 @@ fn fails(ticket: &Ticket, rule: Rule) -> bool {
 }
 
 #[test]
-fn a_good_ticket_fails_no_rule_but_is_undecided_on_what_is_not_built() {
+fn a_good_ticket_with_everything_known_is_qualified() {
     let ticket = good();
-    let qualification = qualify(&ticket, &access());
+    let qualification = qualify(&ticket, &with(&access()));
+    assert_eq!(
+        qualification.verdict(),
+        Verdict::Qualified,
+        "{qualification:?}"
+    );
+}
+
+#[test]
+fn without_what_kai_finds_beside_it_a_good_ticket_is_undecided_on_the_gate_and_at_ref() {
+    let qualification = qualify(&good(), &Facts::default());
     assert_eq!(qualification.verdict(), Verdict::Undecided);
     let not_checked: Vec<Rule> = qualification
         .findings
@@ -87,7 +118,89 @@ fn a_good_ticket_fails_no_rule_but_is_undecided_on_what_is_not_built() {
         .filter(|f| !matches!(f.outcome, Outcome::Pass))
         .map(|f| f.rule)
         .collect();
-    assert_eq!(not_checked, [Rule::AtRef]);
+    assert_eq!(not_checked, [Rule::TrustGate, Rule::AtRef]);
+}
+
+/// The outcome of `at-ref` for `ticket` with `facts`.
+fn at_ref(ticket: &Ticket, facts: &Facts) -> Outcome {
+    qualify(ticket, facts)
+        .findings
+        .into_iter()
+        .find(|f| f.rule == Rule::AtRef)
+        .expect("at-ref was applied")
+        .outcome
+}
+
+#[test]
+fn at_ref_needs_the_commit_fetched_and_the_hidden_tests_in_the_board() {
+    let access = access();
+    let all = with(&access);
+    let unfetched = Facts {
+        commit_fetched: false,
+        ..all.clone()
+    };
+    let unlisted = Facts {
+        board_files: None,
+        ..all.clone()
+    };
+    for (facts, what) in [(&unfetched, "not fetched"), (&unlisted, "not listed")] {
+        assert!(
+            matches!(at_ref(&good(), facts), Outcome::NotChecked(_)),
+            "{what}"
+        );
+    }
+    let mut glob = good();
+    glob.form.as_mut().unwrap().hidden_tests = Some("tests/hidden/*.rs".to_owned());
+    assert_eq!(at_ref(&glob, &all), Outcome::Pass);
+}
+
+#[test]
+fn at_ref_fails_when_no_file_of_the_board_is_the_hidden_tests() {
+    let access = access();
+    let mut missing = good();
+    missing.form.as_mut().unwrap().hidden_tests = Some("tests/hidden/sort.rs".to_owned());
+    match at_ref(&missing, &with(&access)) {
+        Outcome::Fail(why) => assert!(why.contains("tests/hidden/sort.rs"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    // Missing beats not fetched: a failure needs no fetch run.
+    let unfetched = Facts {
+        commit_fetched: false,
+        ..with(&access)
+    };
+    assert!(matches!(at_ref(&missing, &unfetched), Outcome::Fail(_)));
+
+    // A listing cut short cannot tell that a file is missing.
+    let cut = BoardFiles {
+        complete: false,
+        ..files()
+    };
+    let facts = Facts {
+        board_files: Some(cut),
+        ..with(&access)
+    };
+    assert!(matches!(at_ref(&missing, &facts), Outcome::NotChecked(_)));
+}
+
+#[test]
+fn at_ref_refuses_hidden_tests_in_the_tree_the_agent_works_in() {
+    let mut same = good();
+    same.form.as_mut().unwrap().repo = Some("example-org/example-board".to_owned());
+    match at_ref(&same, &with(&access())) {
+        Outcome::Fail(why) => assert!(why.contains("the board itself"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn hidden_tests_from_a_pull_request_are_not_read_yet() {
+    let mut pull = good();
+    pull.form.as_mut().unwrap().hidden_tests =
+        Some("https://github.com/example-org/example-code/pull/7".to_owned());
+    assert!(matches!(
+        at_ref(&pull, &with(&access())),
+        Outcome::NotChecked(_)
+    ));
 }
 
 #[test]
@@ -128,7 +241,10 @@ fn the_label_put_on_last_by_someone_who_cannot_write_is_refused() {
         Outcome::Fail(why) => assert!(why.contains("example-triager") && why.contains("`triage`")),
         other => panic!("{other:?}"),
     }
-    assert_eq!(qualify(&ticket, &access()).verdict(), Verdict::Refused);
+    assert_eq!(
+        qualify(&ticket, &with(&access())).verdict(),
+        Verdict::Refused
+    );
 }
 
 #[test]
@@ -173,7 +289,10 @@ fn without_the_kai_label_it_is_refused() {
     let mut ticket = good();
     ticket.labels.retain(|label| label != "kai");
     assert!(fails(&ticket, Rule::Label));
-    assert_eq!(qualify(&ticket, &access()).verdict(), Verdict::Refused);
+    assert_eq!(
+        qualify(&ticket, &with(&access())).verdict(),
+        Verdict::Refused
+    );
 }
 
 #[test]
@@ -198,7 +317,7 @@ fn a_closed_issue_is_refused() {
 fn a_body_that_is_not_the_form_is_refused_and_its_fields_are_not_judged() {
     let mut ticket = good();
     ticket.form = None;
-    let qualification = qualify(&ticket, &access());
+    let qualification = qualify(&ticket, &with(&access()));
     assert!(fails(&ticket, Rule::Form));
     assert!(!qualification.findings.iter().any(|f| f.rule == Rule::Repo));
 }

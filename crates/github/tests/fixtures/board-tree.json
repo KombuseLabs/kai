@@ -1,0 +1,11 @@
+{
+  "sha": "2222222222222222222222222222222222222222",
+  "url": "https://api.github.com/repos/example-org/example-board/git/trees/2222222222222222222222222222222222222222",
+  "tree": [
+    { "path": "README.md", "mode": "100644", "type": "blob", "sha": "3333333333333333333333333333333333333333", "size": 12 },
+    { "path": "tests", "mode": "040000", "type": "tree", "sha": "4444444444444444444444444444444444444444" },
+    { "path": "tests/hidden", "mode": "040000", "type": "tree", "sha": "5555555555555555555555555555555555555555" },
+    { "path": "tests/hidden/count.rs", "mode": "100644", "type": "blob", "sha": "6666666666666666666666666666666666666666", "size": 40 }
+  ],
+  "truncated": false
+}
